@@ -622,7 +622,7 @@ static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 				wcn36xx_err("failed to alloc beacon skb\n");
 				goto out;
 			}
-			wcn36xx_smd_send_beacon(wcn, skb, tim_off, 0);
+			wcn36xx_smd_send_beacon(wcn, vif, skb, tim_off, 0);
 			dev_kfree_skb(skb);
 
 			if (vif->type == NL80211_IFTYPE_ADHOC ||
