@@ -261,6 +261,35 @@ int wcn36xx_start_tx(struct wcn36xx *wcn,
 
 	/* Data frames served first*/
 	if (is_low) {
+		if (sta_priv) {
+			struct ieee80211_vif *vif = NULL;
+			vif = container_of((void *)sta_priv->vif,
+					   struct ieee80211_vif, drv_priv);
+
+			if (!bcast && ieee80211_is_data_qos(hdr->frame_control)
+			    && vif->type == NL80211_IFTYPE_MESH_POINT) {
+				u8 *qc, tid;
+				struct ieee80211_sta *sta;
+
+				rcu_read_lock();
+				sta = ieee80211_find_sta(vif, hdr->addr1);
+				if (!sta) {
+					wcn36xx_err("sta %pM is not found\n",
+						    hdr->addr1);
+					rcu_read_unlock();
+					return -EINVAL;
+				}
+
+				qc = ieee80211_get_qos_ctl(hdr);
+				tid = qc[0] & 0xf;
+				if (sta_priv->tid_state[tid] == AGGR_STOP) {
+					ieee80211_start_tx_ba_session(sta, tid, 0);
+					sta_priv->tid_state[tid] = AGGR_PROGRESS;
+				}
+				rcu_read_unlock();
+			}
+		}
+
 		wcn36xx_set_tx_data(bd, wcn, &vif_priv, sta_priv, hdr, bcast);
 		wcn36xx_set_tx_pdu(bd,
 			   ieee80211_is_data_qos(hdr->frame_control) ?

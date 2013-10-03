@@ -131,6 +131,13 @@ struct wcn36xx_vif {
 	u8 self_dpu_desc_index;
 };
 
+enum tid_aggr_state {
+	AGGR_STOP = 0,
+	AGGR_PROGRESS,
+	AGGR_START,
+	AGGR_OPERATIONAL
+};
+
 /**
  * struct wcn36xx_sta - holds STA related fields
  *
@@ -162,6 +169,7 @@ struct wcn36xx_sta {
 	u8 bss_sta_index;
 	u8 bss_dpu_desc_index;
 	bool is_data_encrypted;
+	enum tid_aggr_state tid_state[8];
 };
 struct wcn36xx_dxe_ch;
 struct wcn36xx {
