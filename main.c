@@ -788,7 +788,7 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 			ieee80211_start_tx_ba_session(sta, tid, 0);
 		break;
 	case IEEE80211_AMPDU_RX_STOP:
-		wcn36xx_smd_del_ba(wcn, tid, get_sta_index(vif, sta_priv));
+		wcn36xx_smd_del_ba(wcn, tid, get_sta_index(vif, sta_priv), 0);
 		break;
 	case IEEE80211_AMPDU_TX_START:
 		sta_priv->tid_state[tid] = AGGR_START;
@@ -803,6 +803,7 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 	case IEEE80211_AMPDU_TX_STOP_FLUSH_CONT:
 	case IEEE80211_AMPDU_TX_STOP_CONT:
 		sta_priv->tid_state[tid] = AGGR_STOP;
+		wcn36xx_smd_del_ba(wcn, tid, get_sta_index(vif, sta_priv), 1);
 		ieee80211_stop_tx_ba_cb_irqsafe(vif, sta->addr, tid);
 		break;
 	default:
