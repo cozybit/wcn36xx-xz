@@ -1732,7 +1732,7 @@ out:
 	return ret;
 }
 
-static int wcn36xx_smd_add_ba_session_rsp(void *buf, size_t len)
+static int wcn36xx_smd_add_ba_session_rsp(void *buf, size_t len, u8 *session_id)
 {
 	struct wcn36xx_hal_add_ba_session_rsp_msg *rsp;
 	int ret = 0;
@@ -1747,6 +1747,8 @@ static int wcn36xx_smd_add_ba_session_rsp(void *buf, size_t len)
 		    sess_id %d, win_size %d, sta_idx %x, ssn %d\n",
 		    rsp->dialog_token, rsp->ba_tid, rsp->ba_buffer_size,
 		    rsp->ba_session_id, rsp->win_size, rsp->sta_index, rsp->ssn);
+
+	*session_id = rsp->ba_session_id;
 	return ret;
 }
 
@@ -1755,7 +1757,8 @@ int wcn36xx_smd_add_ba_session(struct wcn36xx *wcn,
 		u16 tid,
 		u16 *ssn,
 		u8 direction,
-		u8 sta_index)
+		u8 sta_index,
+		u8 *session_id)
 {
 	struct wcn36xx_hal_add_ba_session_req_msg msg_body;
 	int ret = 0;
@@ -1783,7 +1786,8 @@ int wcn36xx_smd_add_ba_session(struct wcn36xx *wcn,
 		wcn36xx_err("Sending hal_add_ba_session failed\n");
 		goto out;
 	}
-	ret = wcn36xx_smd_add_ba_session_rsp(wcn->hal_buf, wcn->hal_rsp_len);
+	ret = wcn36xx_smd_add_ba_session_rsp(wcn->hal_buf, wcn->hal_rsp_len,
+					     session_id);
 	if (ret) {
 		wcn36xx_err("hal_add_ba_session response failed err=%d\n", ret);
 		goto out;

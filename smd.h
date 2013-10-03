@@ -114,7 +114,8 @@ int wcn36xx_smd_add_ba_session(struct wcn36xx *wcn,
 		u16 tid,
 		u16 *ssn,
 		u8 direction,
-		u8 sta_index);
+		u8 sta_index,
+		u8 *session_id);
 int wcn36xx_smd_add_ba(struct wcn36xx *wcn);
 int wcn36xx_smd_del_ba(struct wcn36xx *wcn, u16 tid, u8 sta_index);
 int wcn36xx_smd_trigger_ba(struct wcn36xx *wcn, u8 sta_index);
