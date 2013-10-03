@@ -781,8 +781,9 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 		sta_priv->tid = tid;
 		wcn36xx_smd_add_ba_session(wcn, sta, tid, ssn, 0,
 			get_sta_index(vif, sta_priv), &session_id);
-		wcn36xx_smd_add_ba(wcn);
-		wcn36xx_smd_trigger_ba(wcn, get_sta_index(vif, sta_priv));
+		wcn36xx_smd_add_ba(wcn, session_id);
+		wcn36xx_smd_trigger_ba(wcn, get_sta_index(vif, sta_priv),
+				       session_id);
 		ieee80211_start_tx_ba_session(sta, tid, 0);
 		break;
 	case IEEE80211_AMPDU_RX_STOP:
