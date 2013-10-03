@@ -784,6 +784,8 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 		wcn36xx_smd_add_ba(wcn, session_id);
 		wcn36xx_smd_trigger_ba(wcn, get_sta_index(vif, sta_priv),
 				       session_id);
+		if (vif->type != NL80211_IFTYPE_MESH_POINT)
+			ieee80211_start_tx_ba_session(sta, tid, 0);
 		break;
 	case IEEE80211_AMPDU_RX_STOP:
 		wcn36xx_smd_del_ba(wcn, tid, get_sta_index(vif, sta_priv));
