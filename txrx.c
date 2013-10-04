@@ -237,6 +237,8 @@ int wcn36xx_start_tx(struct wcn36xx *wcn,
 	wcn36xx_dbg_dump(WCN36XX_DBG_TX_DUMP, "", skb->data, skb->len);
 
 	bd->dpu_rf = WCN36XX_BMU_WQ_TX;
+	/* SSN always filled by Host */
+	bd->pdu.bd_ssn = WCN36XX_TXBD_SSN_FILL_HOST;
 
 	bd->tx_comp = info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS;
 	if (bd->tx_comp) {
@@ -287,6 +289,9 @@ int wcn36xx_start_tx(struct wcn36xx *wcn,
 					sta_priv->tid_state[tid] = AGGR_PROGRESS;
 				}
 				rcu_read_unlock();
+
+				/* Let FW set the SQN */
+				bd->pdu.bd_ssn = WCN36XX_TXBD_SSN_FILL_DPU_QOS;
 			}
 		}
 
