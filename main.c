@@ -269,6 +269,9 @@ static void wcn36xx_stop(struct ieee80211_hw *hw)
 	wcn36xx_dxe_free_mem_pools(wcn);
 	wcn36xx_dxe_free_ctl_blks(wcn);
 
+	cancel_work_sync(&wcn->tx_work);
+	wcn36xx_tx_cleanup(wcn);
+
 	kfree(wcn->hal_buf);
 }
 
@@ -304,13 +307,14 @@ static void wcn36xx_tx(struct ieee80211_hw *hw,
 		       struct sk_buff *skb)
 {
 	struct wcn36xx *wcn = hw->priv;
-	struct wcn36xx_sta *sta_priv = NULL;
 
-	if (control->sta)
-		sta_priv = (struct wcn36xx_sta *)control->sta->drv_priv;
+	if (atomic_inc_return(&wcn->tx_pending) >= WCN36XX_TX_CT_HI)
+		wcn36xx_stop_queue(wcn);
 
-	if (wcn36xx_start_tx(wcn, sta_priv, skb))
-		ieee80211_free_txskb(wcn->hw, skb);
+	wcn36xx_ampdu_check(wcn, control->sta, skb);
+
+	skb_queue_tail(&wcn->tx_queue, skb);
+	ieee80211_queue_work(wcn->hw, &wcn->tx_work);
 }
 
 static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
@@ -707,6 +711,8 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	vif_priv->sta = sta_priv;
 	sta_priv->vif = vif_priv;
+	sta_priv->sta = sta;
+	INIT_WORK(&sta_priv->ampdu_work, wcn36xx_ampdu_work);
 	/*
 	 * For STA mode HW will be configured on BSS_CHANGED_ASSOC because
 	 * at this stage AID is not available yet.
@@ -729,9 +735,11 @@ static int wcn36xx_sta_remove(struct ieee80211_hw *hw,
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac sta remove vif %p sta %pM index %d\n",
 		    vif, sta->addr, sta_priv->sta_index);
 
+	cancel_work_sync(&sta_priv->ampdu_work);
 	wcn36xx_smd_delete_sta(wcn, sta_priv->sta_index);
 	vif_priv->sta = NULL;
 	sta_priv->vif = NULL;
+	sta_priv->sta = NULL;
 	return 0;
 }
 
@@ -980,6 +988,9 @@ static int wcn36xx_probe(struct platform_device *pdev)
 	ret = ieee80211_register_hw(wcn->hw);
 	if (ret)
 		goto out_unmap;
+
+	INIT_WORK(&wcn->tx_work, wcn36xx_tx_work);
+	skb_queue_head_init(&wcn->tx_queue);
 
 	return 0;
 

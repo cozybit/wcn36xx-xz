@@ -355,8 +355,8 @@ static void reap_tx_dxes(struct wcn36xx *wcn, struct wcn36xx_dxe_ch *ch)
 				ieee80211_free_txskb(wcn->hw, ctl->skb);
 			}
 			spin_lock_irqsave(&ctl->skb_lock, flags);
-			if (wcn->queues_stopped) {
-				wcn->queues_stopped = false;
+			if (wcn->stopped) {
+				wcn->stopped = false;
 				ieee80211_wake_queues(wcn->hw);
 			}
 			spin_unlock_irqrestore(&ctl->skb_lock, flags);
@@ -599,7 +599,7 @@ int wcn36xx_dxe_tx_frame(struct wcn36xx *wcn,
 	 */
 	if (NULL != ctl->next->skb) {
 		ieee80211_stop_queues(wcn->hw);
-		wcn->queues_stopped = true;
+		wcn->stopped = true;
 		spin_unlock_irqrestore(&ctl->next->skb_lock, flags);
 		return -EBUSY;
 	}

@@ -81,6 +81,9 @@ enum wcn36xx_debug_mask {
 #define WCN36XX_FLAGS(__wcn) (__wcn->hw->flags)
 #define WCN36XX_MAX_POWER(__wcn) (__wcn->hw->conf.chandef.chan->max_power)
 
+#define WCN36XX_TX_CT_HI	80
+#define WCN36XX_TX_CT_LO	50
+
 static inline void buff_to_be(u32 *buf, size_t len)
 {
 	int i;
@@ -133,15 +136,18 @@ struct wcn36xx_vif {
 
 enum tid_aggr_state {
 	AGGR_STOP = 0,
+	AGGR_INIT,
 	AGGR_PROGRESS,
 	AGGR_START,
 	AGGR_OPERATIONAL
 };
 
+#define WCN36XX_MAX_TIDS 8
+
 /**
  * struct wcn36xx_sta - holds STA related fields
  *
- * @tid: traffic ID that is used during AMPDU and in TX BD.
+ * @sta: mac80211 sta related pointer
  * @sta_index: STA index is returned from HW after config_sta call and is
  * used in both SMD channel and TX BD.
  * @dpu_desc_index: DPU descriptor index is returned from HW after config_sta
@@ -162,6 +168,7 @@ enum tid_aggr_state {
  */
 struct wcn36xx_sta {
 	struct wcn36xx_vif *vif;
+	struct ieee80211_sta *sta;
 	u16 aid;
 	u16 tid;
 	u8 sta_index;
@@ -169,7 +176,8 @@ struct wcn36xx_sta {
 	u8 bss_sta_index;
 	u8 bss_dpu_desc_index;
 	bool is_data_encrypted;
-	enum tid_aggr_state tid_state[8];
+	struct work_struct ampdu_work;
+	enum tid_aggr_state tid_state[WCN36XX_MAX_TIDS];
 };
 struct wcn36xx_dxe_ch;
 struct wcn36xx {
@@ -208,6 +216,10 @@ struct wcn36xx {
 	struct work_struct	hal_ind_work;
 	struct mutex		hal_ind_mutex;
 	struct list_head	hal_ind_queue;
+	struct work_struct      tx_work;
+	struct sk_buff_head     tx_queue;
+	struct sk_buff_head     tx_status_queue;
+	atomic_t                tx_pending;
 
 	/* DXE channels */
 	struct wcn36xx_dxe_ch	dxe_tx_l_ch;	/* TX low */
@@ -216,8 +228,8 @@ struct wcn36xx {
 	struct wcn36xx_dxe_ch	dxe_rx_h_ch;	/* RX high */
 
 	/* For synchronization of DXE resources from BH, IRQ and WQ contexts */
-	spinlock_t	dxe_lock;
-	bool                    queues_stopped;
+	spinlock_t		dxe_lock;
+	bool			stopped;
 
 	/* Memory pools */
 	struct wcn36xx_dxe_mem_pool mgmt_mem_pool;

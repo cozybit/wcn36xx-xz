@@ -158,8 +158,12 @@ struct wcn36xx_sta;
 struct wcn36xx;
 
 int  wcn36xx_rx_skb(struct wcn36xx *wcn, struct sk_buff *skb);
-int wcn36xx_start_tx(struct wcn36xx *wcn,
-		     struct wcn36xx_sta *sta_priv,
-		     struct sk_buff *skb);
+void wcn36xx_tx_cleanup(struct wcn36xx *wcn);
+void wcn36xx_stop_queue(struct wcn36xx *wcn);
+void wcn36xx_ampdu_check(struct wcn36xx *wcn,
+			 struct ieee80211_sta *sta,
+			 struct sk_buff *skb);
+void wcn36xx_ampdu_work(struct work_struct *work);
+void wcn36xx_tx_work(struct work_struct *work);
 
 #endif	/* _TXRX_H_ */

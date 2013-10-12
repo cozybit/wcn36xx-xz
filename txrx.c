@@ -111,65 +111,29 @@ static inline struct wcn36xx_vif *get_vif_by_addr(struct wcn36xx *wcn,
 	wcn36xx_warn("vif %pM not found\n", addr);
 	return NULL;
 }
-static void wcn36xx_set_tx_data(struct wcn36xx_tx_bd *bd,
-				struct wcn36xx *wcn,
-				struct wcn36xx_vif **vif_priv,
-				struct wcn36xx_sta *sta_priv,
-				struct ieee80211_hdr *hdr,
-				bool bcast)
+
+int wcn36xx_tx_setup_mgmt(struct wcn36xx *wcn,
+			  struct sk_buff *skb,
+			  struct wcn36xx_vif *vif_priv,
+			  bool bcast)
 {
-	struct ieee80211_vif *vif = NULL;
-	struct wcn36xx_vif *__vif_priv = NULL;
-	bd->bd_rate = WCN36XX_BD_RATE_DATA;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	struct wcn36xx_tx_bd *bd;
 
-	/*
-	 * For not unicast frames mac80211 will not set sta pointer so use
-	 * self_sta_index instead.
-	 */
-	if (sta_priv) {
-		__vif_priv = sta_priv->vif;
-		vif = container_of((void *)__vif_priv,
-				   struct ieee80211_vif,
-				   drv_priv);
-
-		if (vif->type == NL80211_IFTYPE_STATION) {
-			bd->sta_index = sta_priv->bss_sta_index;
-			bd->dpu_desc_idx = sta_priv->bss_dpu_desc_index;
-		} else if (vif->type == NL80211_IFTYPE_AP ||
-			   vif->type == NL80211_IFTYPE_ADHOC ||
-			   vif->type == NL80211_IFTYPE_MESH_POINT) {
-			bd->sta_index = sta_priv->sta_index;
-			bd->dpu_desc_idx = sta_priv->dpu_desc_index;
-		}
-	} else {
-		__vif_priv = get_vif_by_addr(wcn, hdr->addr2);
-		bd->sta_index = __vif_priv->self_sta_index;
-		bd->dpu_desc_idx = __vif_priv->self_dpu_desc_index;
+	bd = wcn36xx_dxe_get_next_bd(wcn, false);
+	if (!bd) {
+		wcn36xx_err("bd address may not be NULL for BD DXE\n");
+		return -EINVAL;
 	}
 
-	bd->dpu_sign = __vif_priv->ucast_dpu_signature;
+	memset(bd, 0, sizeof(*bd));
 
-	if (ieee80211_is_nullfunc(hdr->frame_control) ||
-	   (sta_priv && !sta_priv->is_data_encrypted))
-		bd->dpu_ne = 1;
-
-	if (bcast) {
-		bd->ub = 1;
-		bd->ack_policy = 1;
-	}
-	*vif_priv = __vif_priv;
-}
-
-static void wcn36xx_set_tx_mgmt(struct wcn36xx_tx_bd *bd,
-				struct wcn36xx *wcn,
-				struct wcn36xx_vif **vif_priv,
-				struct ieee80211_hdr *hdr,
-				bool bcast)
-{
-	struct wcn36xx_vif *__vif_priv =
-		get_vif_by_addr(wcn, hdr->addr2);
-	bd->sta_index = __vif_priv->self_sta_index;
-	bd->dpu_desc_idx = __vif_priv->self_dpu_desc_index;
+	bd->dpu_rf = WCN36XX_BMU_WQ_TX;
+	/* SSN always filled by Host */
+	bd->pdu.bd_ssn = WCN36XX_TXBD_SSN_FILL_HOST;
+	bd->tx_comp = 0;
+	bd->sta_index = vif_priv->self_sta_index;
+	bd->dpu_desc_idx = vif_priv->self_dpu_desc_index;
 	bd->dpu_ne = 1;
 
 	/* default rate for unicast */
@@ -186,7 +150,7 @@ static void wcn36xx_set_tx_mgmt(struct wcn36xx_tx_bd *bd,
 	 * In joining state trick hardware that probe is sent as
 	 * unicast even if address is broadcast.
 	 */
-	if (__vif_priv->is_joining &&
+	if (vif_priv->is_joining &&
 	    ieee80211_is_probe_req(hdr->frame_control))
 		bcast = false;
 
@@ -196,24 +160,33 @@ static void wcn36xx_set_tx_mgmt(struct wcn36xx_tx_bd *bd,
 		/* No ack needed not unicast */
 		bd->ack_policy = 1;
 		bd->queue_id = WCN36XX_TX_B_WQ_ID;
-	} else
+	} else {
 		bd->queue_id = WCN36XX_TX_U_WQ_ID;
-	*vif_priv = __vif_priv;
+	}
+
+	wcn36xx_set_tx_pdu(bd, ieee80211_is_data_qos(hdr->frame_control) ?
+			   sizeof(struct ieee80211_qos_hdr) :
+			   sizeof(struct ieee80211_hdr_3addr),
+			   skb->len, WCN36XX_TID);
+
+	buff_to_be((u32 *)bd, sizeof(*bd)/sizeof(u32));
+	bd->tx_bd_sign = 0xbdbdbdbd;
+
+	return 0;
 }
 
-int wcn36xx_start_tx(struct wcn36xx *wcn,
-		     struct wcn36xx_sta *sta_priv,
-		     struct sk_buff *skb)
+int wcn36xx_tx_setup_data(struct wcn36xx *wcn,
+			  struct sk_buff *skb,
+			  struct wcn36xx_vif *vif_priv,
+			  bool bcast)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
-	struct wcn36xx_vif *vif_priv = NULL;
-	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
-	unsigned long flags;
-	bool is_low = ieee80211_is_data(hdr->frame_control);
-	bool bcast = is_broadcast_ether_addr(hdr->addr1) ||
-		is_multicast_ether_addr(hdr->addr1);
-	struct wcn36xx_tx_bd *bd = wcn36xx_dxe_get_next_bd(wcn, is_low);
+	struct ieee80211_vif *vif = NULL;
+	struct wcn36xx_tx_bd *bd;
+	struct wcn36xx_sta *sta_priv = NULL;
+	u8 *qc, tid = 0;
 
+	bd = wcn36xx_dxe_get_next_bd(wcn, true);
 	if (!bd) {
 		/*
 		 * TX DXE are used in pairs. One for the BD and one for the
@@ -221,98 +194,200 @@ int wcn36xx_start_tx(struct wcn36xx *wcn,
 		 * the skb ones does not. If this isn't true something is really
 		 * wierd. TODO: Recover from this situation
 		 */
-
 		wcn36xx_err("bd address may not be NULL for BD DXE\n");
 		return -EINVAL;
 	}
 
 	memset(bd, 0, sizeof(*bd));
 
-	wcn36xx_dbg(WCN36XX_DBG_TX,
-		    "tx skb %p len %d fc %04x sn %d %s %s\n",
-		    skb, skb->len, __le16_to_cpu(hdr->frame_control),
-		    IEEE80211_SEQ_TO_SN(__le16_to_cpu(hdr->seq_ctrl)),
-		    is_low ? "low" : "high", bcast ? "bcast" : "ucast");
-
-	wcn36xx_dbg_dump(WCN36XX_DBG_TX_DUMP, "", skb->data, skb->len);
-
 	bd->dpu_rf = WCN36XX_BMU_WQ_TX;
+	bd->bd_rate = WCN36XX_BD_RATE_DATA;
 	/* SSN always filled by Host */
 	bd->pdu.bd_ssn = WCN36XX_TXBD_SSN_FILL_HOST;
+	bd->tx_comp = 0;
 
-	bd->tx_comp = info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS;
-	if (bd->tx_comp) {
-		wcn36xx_dbg(WCN36XX_DBG_DXE, "TX_ACK status requested\n");
-		spin_lock_irqsave(&wcn->dxe_lock, flags);
-		if (wcn->tx_ack_skb) {
-			spin_unlock_irqrestore(&wcn->dxe_lock, flags);
-			wcn36xx_warn("tx_ack_skb already set\n");
-			return -EINVAL;
+	if (!bcast) {
+		sta_priv = vif_priv->sta;
+		qc = ieee80211_get_qos_ctl(hdr);
+		tid = qc[0] & 0xf;
+		/* Let FW set the SQN */
+		bd->pdu.bd_ssn = WCN36XX_TXBD_SSN_FILL_DPU_QOS;
+		bd->queue_id = tid;
+
+		vif = container_of((void *)vif_priv, struct ieee80211_vif,
+				   drv_priv);
+
+		if (vif->type == NL80211_IFTYPE_STATION) {
+			bd->sta_index = sta_priv->bss_sta_index;
+			bd->dpu_desc_idx = sta_priv->bss_dpu_desc_index;
+		} else if (vif->type == NL80211_IFTYPE_AP ||
+			   vif->type == NL80211_IFTYPE_ADHOC ||
+			   vif->type == NL80211_IFTYPE_MESH_POINT) {
+			bd->sta_index = sta_priv->sta_index;
+			bd->dpu_desc_idx = sta_priv->dpu_desc_index;
 		}
-
-		wcn->tx_ack_skb = skb;
-		spin_unlock_irqrestore(&wcn->dxe_lock, flags);
-
-		/* Only one at a time is supported by fw. Stop the TX queues
-		 * until the ack status gets back.
-		 *
-		 * TODO: Add watchdog in case FW does not answer
-		 */
-		ieee80211_stop_queues(wcn->hw);
-	}
-
-	/* Data frames served first*/
-	if (is_low) {
-		if (sta_priv) {
-			struct ieee80211_vif *vif = NULL;
-			vif = container_of((void *)sta_priv->vif,
-					   struct ieee80211_vif, drv_priv);
-
-			if (!bcast && ieee80211_is_data_qos(hdr->frame_control)
-			    && vif->type == NL80211_IFTYPE_MESH_POINT) {
-				u8 *qc, tid;
-				struct ieee80211_sta *sta;
-
-				rcu_read_lock();
-				sta = ieee80211_find_sta(vif, hdr->addr1);
-				if (!sta) {
-					wcn36xx_err("sta %pM is not found\n",
-						    hdr->addr1);
-					rcu_read_unlock();
-					return -EINVAL;
-				}
-
-				qc = ieee80211_get_qos_ctl(hdr);
-				tid = qc[0] & 0xf;
-				if (sta_priv->tid_state[tid] == AGGR_STOP) {
-					ieee80211_start_tx_ba_session(sta, tid, 0);
-					sta_priv->tid_state[tid] = AGGR_PROGRESS;
-				}
-				rcu_read_unlock();
-
-				/* Let FW set the SQN */
-				bd->pdu.bd_ssn = WCN36XX_TXBD_SSN_FILL_DPU_QOS;
-			}
-		}
-
-		wcn36xx_set_tx_data(bd, wcn, &vif_priv, sta_priv, hdr, bcast);
-		wcn36xx_set_tx_pdu(bd,
-			   ieee80211_is_data_qos(hdr->frame_control) ?
-			   sizeof(struct ieee80211_qos_hdr) :
-			   sizeof(struct ieee80211_hdr_3addr),
-			   skb->len, sta_priv ? sta_priv->tid : 0);
 	} else {
-		/* MGMT and CTRL frames are handeld here*/
-		wcn36xx_set_tx_mgmt(bd, wcn, &vif_priv, hdr, bcast);
-		wcn36xx_set_tx_pdu(bd,
-			   ieee80211_is_data_qos(hdr->frame_control) ?
+		bd->ub = 1;
+		bd->ack_policy = 1;
+		bd->sta_index = vif_priv->self_sta_index;
+		bd->dpu_desc_idx = vif_priv->self_dpu_desc_index;
+	}
+
+	bd->dpu_sign = vif_priv->ucast_dpu_signature;
+
+	if (ieee80211_is_nullfunc(hdr->frame_control) ||
+	    (sta_priv && !sta_priv->is_data_encrypted))
+		bd->dpu_ne = 1;
+
+	wcn36xx_set_tx_pdu(bd, ieee80211_is_data_qos(hdr->frame_control) ?
 			   sizeof(struct ieee80211_qos_hdr) :
 			   sizeof(struct ieee80211_hdr_3addr),
-			   skb->len, WCN36XX_TID);
-	}
+			   skb->len, tid);
 
 	buff_to_be((u32 *)bd, sizeof(*bd)/sizeof(u32));
 	bd->tx_bd_sign = 0xbdbdbdbd;
 
-	return wcn36xx_dxe_tx_frame(wcn, vif_priv, skb, is_low);
+	return 0;
+}
+
+void wcn36xx_ampdu_work(struct work_struct *work)
+{
+	struct wcn36xx_sta *wcn36xx_sta;
+	struct ieee80211_sta *sta;
+	int tid;
+
+	wcn36xx_sta = container_of(work, struct wcn36xx_sta, ampdu_work);
+	sta = wcn36xx_sta->sta;
+
+	for (tid = 0; tid < WCN36XX_MAX_TIDS; tid++) {
+		if (wcn36xx_sta->tid_state[tid] != AGGR_INIT)
+			continue;
+
+		ieee80211_start_tx_ba_session(sta, tid, 0);
+	}
+}
+
+int wcn36xx_tx_frame(struct wcn36xx *wcn,
+		     struct sk_buff *skb,
+		     bool more_frames)
+{
+	struct wcn36xx_vif *vif_priv;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	struct wcn36xx_sta *sta_priv = NULL;
+	bool dxe_txlow, bcast;
+
+	vif_priv = get_vif_by_addr(wcn, hdr->addr2);
+	if (!vif_priv) {
+		wcn36xx_err("No VIF for tx frame\n");
+		return -EINVAL;
+	}
+
+	bcast = is_broadcast_ether_addr(hdr->addr1) ||
+		is_multicast_ether_addr(hdr->addr1);
+
+	dxe_txlow = ieee80211_is_data(hdr->frame_control);
+
+	sta_priv = vif_priv->sta;
+	
+	if (dxe_txlow) {
+		if (wcn36xx_tx_setup_data(wcn, skb, vif_priv, bcast)) {
+			wcn36xx_err("Tx BD Data setup problem\n");
+			return -EINVAL;
+		}
+	} else {
+		if (wcn36xx_tx_setup_mgmt(wcn, skb, vif_priv, bcast)) {
+			wcn36xx_err("Tx BD Mgmt setup problem\n");
+			return -EINVAL;
+		}
+	}
+
+	return wcn36xx_dxe_tx_frame(wcn, vif_priv, skb, dxe_txlow);
+}
+
+void wcn36xx_start_queue(struct wcn36xx *wcn)
+{
+	if (!wcn->stopped)
+		return;
+
+	wcn->stopped = false;
+	ieee80211_wake_queues(wcn->hw);
+}
+
+void wcn36xx_tx_cleanup(struct wcn36xx *wcn)
+{
+	struct sk_buff *skb;
+
+	while ((skb = skb_dequeue(&wcn->tx_queue)))
+		ieee80211_free_txskb(wcn->hw, skb);
+}
+
+void wcn36xx_stop_queue(struct wcn36xx *wcn)
+{
+	if (wcn->stopped)
+		return;
+
+	wcn->stopped = true;
+	ieee80211_stop_queues(wcn->hw);
+}
+
+void wcn36xx_ampdu_check(struct wcn36xx *wcn,
+			 struct ieee80211_sta *sta,
+			 struct sk_buff *skb)
+{
+	struct wcn36xx_sta *sta_priv;
+	struct ieee80211_hdr *hdr;
+	u8 *qc, tid;
+
+	if (!sta || !conf_is_ht(&wcn->hw->conf))
+		return;
+
+	hdr = (struct ieee80211_hdr *) skb->data;
+	if (!ieee80211_is_data_qos(hdr->frame_control))
+		return;
+
+	if (skb_get_queue_mapping(skb) == IEEE80211_AC_VO)
+		return;
+
+	qc = ieee80211_get_qos_ctl(hdr);
+	tid = qc[0] & IEEE80211_QOS_CTL_TID_MASK;
+
+	sta_priv = (struct wcn36xx_sta *) sta->drv_priv;
+
+	if (sta_priv->tid_state[tid] == AGGR_STOP) {
+		sta_priv->tid_state[tid] = AGGR_INIT;
+		ieee80211_queue_work(wcn->hw, &sta_priv->ampdu_work);
+	}
+}
+
+void wcn36xx_tx_work(struct work_struct *work)
+{
+	struct wcn36xx *wcn;
+	struct sk_buff *skb;
+	u8 *data_ptr;
+	int ret;
+
+	wcn = container_of(work, struct wcn36xx, tx_work);
+
+	while ((skb = skb_dequeue(&wcn->tx_queue))) {
+		data_ptr = skb->data;
+		ret = wcn36xx_tx_frame(wcn, skb,
+				       !skb_queue_empty(&wcn->tx_queue));
+
+		skb_pull(skb, data_ptr - skb->data);
+
+		if (ret == -EBUSY) {
+			skb_queue_head(&wcn->tx_queue, skb);
+			return;
+		}
+
+		if (ret) {
+			atomic_dec_return(&wcn->tx_pending);
+			ieee80211_free_txskb(wcn->hw, skb);
+			return;
+		}
+
+		if (atomic_dec_return(&wcn->tx_pending) <=
+		    WCN36XX_TX_CT_LO)
+			wcn36xx_start_queue(wcn);
+	}
 }
