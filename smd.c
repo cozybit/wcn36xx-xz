@@ -1950,6 +1950,7 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 	struct wcn36xx_hal_delete_sta_context_ind_msg *rsp = buf;
 	struct wcn36xx_vif *tmp;
 	struct ieee80211_sta *sta = NULL;
+	struct wcn36xx_sta *sta_priv = NULL;
 
 	if (len != sizeof(*rsp)) {
 		wcn36xx_warn("Corrupted delete sta indication\n");
@@ -1957,15 +1958,14 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 	}
 
 	list_for_each_entry(tmp, &wcn->vif_list, list) {
-		if (sta && (tmp->sta->sta_index == rsp->sta_id)) {
+		if (tmp->sta->sta_index == rsp->sta_id) {
 			sta = container_of((void *)tmp->sta,
 						 struct ieee80211_sta,
 						 drv_priv);
-			wcn36xx_dbg(WCN36XX_DBG_HAL,
-				    "delete station indication %pM index %d\n",
-				    rsp->addr2,
-				    rsp->sta_id);
-			ieee80211_report_low_ack(sta, 0);
+			sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+			wcn36xx_warn("STA %pM index %d is leaving\n",
+				     rsp->addr2, rsp->sta_id);
+			sta_priv->is_rejoin_mesh = true;
 			return 0;
 		}
 	}

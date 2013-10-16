@@ -721,6 +721,9 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		sta_priv->aid = sta->aid;
 		wcn36xx_smd_config_sta(wcn, vif, sta);
 	}
+
+	sta_priv->is_rejoin_mesh = false;
+
 	return 0;
 }
 

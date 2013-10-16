@@ -226,6 +226,16 @@ int wcn36xx_tx_setup_data(struct wcn36xx *wcn,
 			bd->sta_index = sta_priv->sta_index;
 			bd->dpu_desc_idx = sta_priv->dpu_desc_index;
 		}
+
+		/*
+		 * Hacking here: once STA is deleted and added,
+		 * it won't able to work with unicast data frame,
+		 * so just fall back to lower Tx rate
+		 */
+		if (sta_priv->is_rejoin_mesh) {
+			bd->sta_index = sta_priv->bss_sta_index;
+			bd->dpu_desc_idx = sta_priv->bss_dpu_desc_index;
+		}
 	} else {
 		bd->ub = 1;
 		bd->ack_policy = 1;
@@ -288,7 +298,7 @@ int wcn36xx_tx_frame(struct wcn36xx *wcn,
 	dxe_txlow = ieee80211_is_data(hdr->frame_control);
 
 	sta_priv = vif_priv->sta;
-	
+
 	if (dxe_txlow) {
 		if (wcn36xx_tx_setup_data(wcn, skb, vif_priv, bcast)) {
 			wcn36xx_err("Tx BD Data setup problem\n");
