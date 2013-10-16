@@ -687,6 +687,9 @@ static int wcn36xx_add_interface(struct ieee80211_hw *hw,
 		return -EOPNOTSUPP;
 	}
 
+	if (!ether_addr_equal(wcn->addresses.addr, vif->addr))
+		memcpy(wcn->addresses.addr, vif->addr, ETH_ALEN);
+
 	list_add(&vif_priv->list, &wcn->vif_list);
 	wcn36xx_smd_add_sta_self(wcn, vif);
 
