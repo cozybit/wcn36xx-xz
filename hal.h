@@ -2292,6 +2292,24 @@ struct ani_global_class_a_stats_info {
 	u32 tx_rate_flags;
 };
 
+struct ani_global_class_d_stats_info {
+	u32 tx_uc_frm_cnt;
+	u32 tx_mc_frm_cnt;
+	u32 tx_bc_frm_cnt;
+	u32 rx_uc_frm_cnt;
+	u32 rx_mc_frm_cnt;
+	u32 rx_bc_frm_cnt;
+	u32 tx_uc_byte_cnt[4];
+	u32 tx_mc_byte_cnt;
+	u32 tx_bc_byte_cnt;
+	u32 rx_uc_byte_cnt[4];
+	u32 rx_mc_byte_cnt;
+	u32 rx_bc_byte_cnt;
+	u32 rx_byte_cnt;
+	u32 num_rx_bytes_crc_ok;
+	u32 rx_rate;
+};
+
 struct ani_global_security_stats {
 	/* The number of unencrypted received MPDU frames that the MAC
 	 * layer discarded when the IEEE 802.11 dot11ExcludeUnencrypted
@@ -2399,6 +2417,15 @@ struct wcn36xx_hal_stats_rsp_msg {
 
 	/* length of the entire request, includes the pStatsBuf length too */
 	u16 msg_len;
+
+	union {
+		struct ani_summary_stats_info sum_stats;
+		struct ani_global_class_a_stats_info a_stats;
+		struct ani_global_class_b_stats_info b_stats;
+		struct ani_global_class_c_stats_info c_stats;
+		struct ani_global_class_d_stats_info d_stats;
+		struct ani_per_sta_stats_info sta_stats;
+	} stats;
 };
 
 struct wcn36xx_hal_set_link_state_req_msg {
