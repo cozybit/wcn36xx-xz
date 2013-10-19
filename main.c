@@ -755,6 +755,7 @@ static int wcn36xx_link_stats(struct ieee80211_hw *hw,
 	struct wcn36xx_sta *sta_priv;
 	struct ieee80211_tx_rate *fwrate;
 	struct ieee80211_sta *sta;
+	unsigned int *fail_avg;
 	u8 sta_index;
 
 	rcu_read_lock();
@@ -766,10 +767,12 @@ static int wcn36xx_link_stats(struct ieee80211_hw *hw,
 	}
 	sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
 	fwrate = &stats->last_tx_rate;
-	stats->fail_avg = 0;
+	fail_avg = &stats->fail_avg;
 	sta_index = get_sta_index(vif, sta_priv);
 	wcn36xx_smd_get_stats(wcn, sta_index,
 			      HAL_GLOBAL_CLASS_A_STATS_INFO, fwrate);
+	wcn36xx_smd_get_stats(wcn, sta_index,
+			      HAL_SUMMARY_STATS_INFO, fail_avg);
 	rcu_read_unlock();
 	return 0;
 }

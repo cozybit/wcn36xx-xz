@@ -117,11 +117,11 @@ int wcn36xx_smd_add_ba_session(struct wcn36xx *wcn,
 		u8 sta_index,
 		u8 *session_id);
 int wcn36xx_smd_add_ba(struct wcn36xx *wcn, u8 session_id);
-int wcn36xx_smd_del_ba(struct wcn36xx *wcn, 
+int wcn36xx_smd_del_ba(struct wcn36xx *wcn,
 		       u16 tid, u8 sta_index, u8 direction);
 int wcn36xx_smd_trigger_ba(struct wcn36xx *wcn, u8 sta_index, u8 session_id);
 int wcn36xx_smd_update_cfg(struct wcn36xx *wcn, u32 cfg_id, u32 value);
 int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u32 sta_index,
 			  enum wcn36xx_hal_stats_mask stats_mask,
-			  struct ieee80211_tx_rate *fwrate);
+			  void *stats);
 #endif	/* _SMD_H_ */
