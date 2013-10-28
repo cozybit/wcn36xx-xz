@@ -886,6 +886,8 @@ static int wcn36xx_smd_config_sta_rsp(struct wcn36xx *wcn,
 	sta_priv->sta_index = params->sta_index;
 	sta_priv->dpu_desc_index = params->dpu_index;
 
+	memcpy(sta_priv->mac_addr, sta->addr, ETH_ALEN);
+
 	wcn36xx_dbg(WCN36XX_DBG_HAL,
 		    "hal config sta rsp status %d sta_index %d bssid_index %d p2p %d\n",
 		    params->status, params->sta_index, params->bssid_index,
@@ -2038,26 +2040,27 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 	}
 
 	list_for_each_entry(tmp, &wcn->vif_list, list) {
-		if (sta && (tmp->sta->sta_index == rsp->sta_id)) {
-			sta = container_of((void *)tmp->sta,
-						 struct ieee80211_sta,
-						 drv_priv);
-			vif = container_of((void *)tmp, struct ieee80211_vif,
-					   drv_priv);
-			sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
-			wcn36xx_warn("STA %pM index %d is leaving\n",
-				     rsp->addr2, rsp->sta_id);
-			if (vif->type == NL80211_IFTYPE_MESH_POINT) {
-				sta_priv->is_rejoin_mesh = true;
-				wcn36xx_smd_config_sta(wcn, vif, sta, 1);
-			}
-			return 0;
-		}
+
+        wcn36xx_warn("STA %pM index %d is leaving\n", rsp->addr2, rsp->sta_id);
+
+        sta_priv = wcn36xx_find_sta(tmp, rsp->addr2);
+        if(!sta_priv)
+            continue;
+
+        sta = container_of((void *)sta_priv, struct ieee80211_sta, drv_priv);
+        vif = container_of((void *)tmp, struct ieee80211_vif, drv_priv);
+
+        if (vif->type == NL80211_IFTYPE_MESH_POINT) {
+            wcn36xx_smd_config_sta(wcn, vif, sta, 1);
+        }
+
+        return 0;
 	}
 
 	wcn36xx_warn("STA with addr %pM and index %d not found\n",
 		     rsp->addr2,
 		     rsp->sta_id);
+
 	return -ENOENT;
 }
 
@@ -2231,3 +2234,22 @@ void wcn36xx_smd_close(struct wcn36xx *wcn)
 	destroy_workqueue(wcn->hal_ind_wq);
 	mutex_destroy(&wcn->hal_ind_mutex);
 }
+
+/**
+ * Assumes lock wcn36xx_vif->sta_list_spinlock is already held.
+ */
+struct wcn36xx_sta* wcn36xx_find_sta(struct wcn36xx_vif *priv, u8 *mac_addr)
+{
+    struct wcn36xx_sta* entry = NULL;
+
+    if (!mac_addr)
+        return NULL;
+
+    list_for_each_entry(entry, &priv->sta_list, list) {
+        if (!memcmp(entry->mac_addr, mac_addr, ETH_ALEN))
+            return entry;
+    }
+
+    return NULL;
+}
+

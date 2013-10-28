@@ -142,6 +142,16 @@ static void wcn36xx_set_tx_data(struct wcn36xx_tx_bd *bd,
 			bd->sta_index = sta_priv->sta_index;
 			bd->dpu_desc_idx = sta_priv->dpu_desc_index;
 		}
+
+		/*
+		 * Hacking here: once STA is deleted and added,
+		 * it won't able to work with unicast data frame,
+		 * so just fall back to lower Tx rate
+		 */
+		if (sta_priv->is_rejoin_mesh) {
+			bd->sta_index = sta_priv->bss_sta_index;
+			bd->dpu_desc_idx = sta_priv->bss_dpu_desc_index;
+		}
 	} else {
 		__vif_priv = get_vif_by_addr(wcn, hdr->addr2);
 		bd->sta_index = __vif_priv->self_sta_index;
