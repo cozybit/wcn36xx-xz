@@ -738,6 +738,33 @@ static int wcn36xx_sta_remove(struct ieee80211_hw *hw,
 	return 0;
 }
 
+static int wcn36xx_link_stats(struct ieee80211_hw *hw,
+			      struct ieee80211_vif *vif,
+			      u8 *peer,
+			      struct ieee80211_link_stats *stats)
+{
+	struct wcn36xx *wcn = hw->priv;
+	struct wcn36xx_sta *sta_priv;
+	struct ieee80211_tx_rate *fwrate;
+	struct ieee80211_sta *sta;
+	u8 sta_index;
+
+	rcu_read_lock();
+	sta = ieee80211_find_sta(vif, peer);
+	if (!sta) {
+		wcn36xx_err("sta %pM is not found\n", peer);
+		rcu_read_unlock();
+		return -EINVAL;
+	}
+	sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+	fwrate = &stats->last_tx_rate;
+	sta_index = get_sta_index(vif, sta_priv);
+	wcn36xx_smd_get_stats(wcn, sta_index,
+			      HAL_GLOBAL_CLASS_A_STATS_INFO, fwrate);
+	rcu_read_unlock();
+	return 0;
+}
+
 #ifdef CONFIG_PM
 
 static int wcn36xx_suspend(struct ieee80211_hw *hw, struct cfg80211_wowlan *wow)
@@ -829,6 +856,7 @@ static const struct ieee80211_ops wcn36xx_ops = {
 	.sta_add		= wcn36xx_sta_add,
 	.sta_remove		= wcn36xx_sta_remove,
 	.ampdu_action		= wcn36xx_ampdu_action,
+	.get_link_stats		= wcn36xx_link_stats,
 };
 
 static int wcn36xx_init_ieee80211(struct wcn36xx *wcn)
