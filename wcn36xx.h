@@ -162,6 +162,7 @@ struct wcn36xx_sta {
 	u8 bss_sta_index;
 	u8 bss_dpu_desc_index;
 	bool is_data_encrypted;
+	bool is_rejoin_mesh;
 };
 struct wcn36xx_dxe_ch;
 struct wcn36xx {
