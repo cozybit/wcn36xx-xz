@@ -132,6 +132,10 @@ struct wcn36xx_vif {
 	bool sta_assoc;
 	struct wcn36xx_hal_mac_ssid ssid;
 
+	struct list_head sta_list;
+	/* spin lock for associated station list */
+	spinlock_t sta_list_spinlock;
+
 	/* Power management */
 	enum wcn36xx_power_state pw_state;
 
@@ -165,6 +169,7 @@ struct wcn36xx_vif {
  * |______________|_____________|_______________|
  */
 struct wcn36xx_sta {
+	struct list_head list;
 	struct wcn36xx_vif *vif;
 	u16 aid;
 	u16 tid;
@@ -180,6 +185,8 @@ struct wcn36xx_sta {
 	spinlock_t ampdu_lock;		/* protects next two fields */
 	enum wcn36xx_ampdu_state ampdu_state[16];
 	int non_agg_frame_ct;
+
+	u8 mac_addr[ETH_ALEN];
 };
 struct wcn36xx_dxe_ch;
 struct wcn36xx {
