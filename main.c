@@ -239,7 +239,9 @@ static int wcn36xx_start(struct ieee80211_hw *hw)
 		if (ret)
 			wcn36xx_warn("Exchange feature caps failed\n");
 	}
+
 	INIT_LIST_HEAD(&wcn->vif_list);
+
 	return 0;
 
 out_smd_stop:
@@ -616,7 +618,7 @@ static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 			 * config_sta must be called from  because this is the
 			 * place where AID is available.
 			 */
-			wcn36xx_smd_config_sta(wcn, vif, sta);
+			wcn36xx_smd_config_sta(wcn, vif, sta, 0);
 			rcu_read_unlock();
 		} else {
 			wcn36xx_dbg(WCN36XX_DBG_MAC,
@@ -722,6 +724,9 @@ static int wcn36xx_add_interface(struct ieee80211_hw *hw,
 		return -EOPNOTSUPP;
 	}
 
+	INIT_LIST_HEAD(&vif_priv->sta_list);
+	spin_lock_init(&vif_priv->sta_list_spinlock);
+
 	list_add(&vif_priv->list, &wcn->vif_list);
 	wcn36xx_smd_add_sta_self(wcn, vif);
 
@@ -734,11 +739,23 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
 	struct wcn36xx_sta *sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+	struct wcn36xx_sta *sta_priv_existing = NULL;
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac sta add vif %p sta %pM\n",
 		    vif, sta->addr);
 
 	vif_priv->sta = sta_priv;
 	sta_priv->vif = vif_priv;
+
+	spin_lock(&vif_priv->sta_list_spinlock);
+	sta_priv_existing = wcn36xx_find_sta(vif_priv, sta->addr);
+
+	if (sta_priv_existing)
+		sta_priv = sta_priv_existing;
+	else
+		list_add(&sta_priv->list, &vif_priv->sta_list);
+
+	spin_unlock(&vif_priv->sta_list_spinlock);
+
 	/*
 	 * For STA mode HW will be configured on BSS_CHANGED_ASSOC because
 	 * at this stage AID is not available yet.
@@ -746,8 +763,12 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (NL80211_IFTYPE_STATION != vif->type) {
 		wcn36xx_update_allowed_rates(sta, WCN36XX_BAND(wcn));
 		sta_priv->aid = sta->aid;
-		wcn36xx_smd_config_sta(wcn, vif, sta);
+		if (sta_priv_existing)
+			wcn36xx_smd_config_sta(wcn, vif, sta, 1);
+		else
+			wcn36xx_smd_config_sta(wcn, vif, sta, 0);
 	}
+
 	return 0;
 }
 
@@ -758,13 +779,30 @@ static int wcn36xx_sta_remove(struct ieee80211_hw *hw,
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
 	struct wcn36xx_sta *sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+	struct wcn36xx_sta *sta_priv_existing = NULL;
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac sta remove vif %p sta %pM index %d\n",
 		    vif, sta->addr, sta_priv->sta_index);
 
-	wcn36xx_smd_delete_sta(wcn, sta_priv->sta_index);
+	spin_lock(&vif_priv->sta_list_spinlock);
+	sta_priv_existing = wcn36xx_find_sta(vif_priv, sta->addr);
+
+	if (sta_priv_existing)
+		list_del(&sta_priv_existing->list);
+
+	spin_unlock(&vif_priv->sta_list_spinlock);
+
 	vif_priv->sta = NULL;
-	sta_priv->vif = NULL;
+
+	if (sta_priv_existing) {
+		sta_priv_existing->vif = NULL;
+		wcn36xx_smd_delete_sta(wcn, sta_priv_existing->sta_index);
+	}
+	else {
+		sta_priv->vif = NULL;
+		wcn36xx_smd_delete_sta(wcn, sta_priv_existing->sta_index);
+	}
+
 	return 0;
 }
 
