@@ -758,6 +758,7 @@ static int wcn36xx_link_stats(struct ieee80211_hw *hw,
 	}
 	sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
 	fwrate = &stats->last_tx_rate;
+	stats->fail_avg = 0;
 	sta_index = get_sta_index(vif, sta_priv);
 	wcn36xx_smd_get_stats(wcn, sta_index,
 			      HAL_GLOBAL_CLASS_A_STATS_INFO, fwrate);
