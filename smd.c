@@ -1744,7 +1744,8 @@ out:
 }
 
 static int wcn36xx_smd_get_stats_rsp(struct wcn36xx *wcn, void *buf, size_t len,
-				     struct ieee80211_tx_rate *fwrate)
+				     enum wcn36xx_hal_stats_mask mask,
+				     void *stats)
 {
 	struct wcn36xx_hal_stats_rsp_msg *rsp;
 	enum ieee80211_band band = wcn->hw->conf.chandef.chan->band;
@@ -1758,29 +1759,37 @@ static int wcn36xx_smd_get_stats_rsp(struct wcn36xx *wcn, void *buf, size_t len,
 
 	rsp = (struct wcn36xx_hal_stats_rsp_msg *)buf;
 
-	fwrate->count = 1;
-	fwrate->flags = 0;
-	flags = rsp->stats.a_stats.tx_rate_flags;
-	if (flags & HAL_TX_RATE_LEGACY) {
-		for (idx = 0; idx < sband->n_bitrates; idx++) {
-			if ((rsp->stats.a_stats.tx_rate * 5) ==
-			    sband->bitrates[idx].bitrate)
-				break;
-		}
+	if (mask == HAL_GLOBAL_CLASS_A_STATS_INFO) {
+		struct ieee80211_tx_rate *fwrate;
+		fwrate = (struct ieee80211_tx_rate *)stats;
+		fwrate->count = 1;
+		fwrate->flags = 0;
+		flags = rsp->stats.a_stats.tx_rate_flags;
+		if (flags & HAL_TX_RATE_LEGACY) {
+			for (idx = 0; idx < sband->n_bitrates; idx++) {
+				if ((rsp->stats.a_stats.tx_rate * 5) ==
+				    sband->bitrates[idx].bitrate)
+					break;
+			}
 
-		if (idx == sband->n_bitrates) {
-			ret = -ENOENT;
-			goto out;
-		}
+			if (idx == sband->n_bitrates) {
+				ret = -ENOENT;
+				goto out;
+			}
 
-		fwrate->idx = idx;
-	} else if (flags & HAL_TX_RATE_HT20) {
-		fwrate->idx = rsp->stats.a_stats.mcs_index;
-		fwrate->flags |= IEEE80211_TX_RC_MCS;
-		if (flags & HAL_TX_RATE_HT40)
-			fwrate->flags |= IEEE80211_TX_RC_40_MHZ_WIDTH;
-		if (flags & HAL_TX_RATE_SGI)
-			fwrate->flags |= IEEE80211_TX_RC_SHORT_GI;
+			fwrate->idx = idx;
+		} else if (flags & HAL_TX_RATE_HT20) {
+			fwrate->idx = rsp->stats.a_stats.mcs_index;
+			fwrate->flags |= IEEE80211_TX_RC_MCS;
+			if (flags & HAL_TX_RATE_HT40)
+				fwrate->flags |= IEEE80211_TX_RC_40_MHZ_WIDTH;
+			if (flags & HAL_TX_RATE_SGI)
+				fwrate->flags |= IEEE80211_TX_RC_SHORT_GI;
+		}
+	} else if (mask == HAL_SUMMARY_STATS_INFO) {
+		unsigned int *avg_fail;
+		avg_fail = (unsigned int *)stats;
+		*avg_fail = rsp->stats.sum_stats.ack_fail_cnt;
 	}
 out:
 	return ret;
@@ -1788,7 +1797,7 @@ out:
 
 int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u32 sta_index,
 			  enum wcn36xx_hal_stats_mask stats_mask,
-			  struct ieee80211_tx_rate *fwrate)
+			  void *stats)
 {
 	struct wcn36xx_hal_stats_req_msg msg_body, *body;
 	size_t len;
@@ -1810,8 +1819,8 @@ int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u32 sta_index,
 		wcn36xx_err("Sending hal_get_stats failed\n");
 		goto out;
 	}
-	ret = wcn36xx_smd_get_stats_rsp(wcn, wcn->hal_buf,
-					wcn->hal_rsp_len, fwrate);
+	ret = wcn36xx_smd_get_stats_rsp(wcn, wcn->hal_buf, wcn->hal_rsp_len,
+					stats_mask, stats);
 	if (ret) {
 		wcn36xx_err("hal_get_stats response failed err=%d\n", ret);
 		goto out;
