@@ -1743,6 +1743,84 @@ out:
 	return ret;
 }
 
+static int wcn36xx_smd_get_stats_rsp(struct wcn36xx *wcn, void *buf, size_t len,
+				     struct ieee80211_tx_rate *fwrate)
+{
+	struct wcn36xx_hal_stats_rsp_msg *rsp;
+	enum ieee80211_band band = wcn->hw->conf.chandef.chan->band;
+	struct ieee80211_supported_band *sband = wcn->hw->wiphy->bands[band];
+	int idx, ret = 0;
+	u32 flags;
+
+	ret = wcn36xx_smd_rsp_status_check(buf, len);
+	if (ret)
+		return ret;
+
+	rsp = (struct wcn36xx_hal_stats_rsp_msg *)buf;
+
+	fwrate->count = 1;
+	fwrate->flags = 0;
+	flags = rsp->stats.a_stats.tx_rate_flags;
+	if (flags & HAL_TX_RATE_LEGACY) {
+		for (idx = 0; idx < sband->n_bitrates; idx++) {
+			if ((rsp->stats.a_stats.tx_rate * 5) ==
+			    sband->bitrates[idx].bitrate)
+				break;
+		}
+
+		if (idx == sband->n_bitrates) {
+			ret = -ENOENT;
+			goto out;
+		}
+
+		fwrate->idx = idx;
+	} else if (flags & HAL_TX_RATE_HT20) {
+		fwrate->idx = rsp->stats.a_stats.mcs_index;
+		fwrate->flags |= IEEE80211_TX_RC_MCS;
+		if (flags & HAL_TX_RATE_HT40)
+			fwrate->flags |= IEEE80211_TX_RC_40_MHZ_WIDTH;
+		if (flags & HAL_TX_RATE_SGI)
+			fwrate->flags |= IEEE80211_TX_RC_SHORT_GI;
+	}
+out:
+	return ret;
+}
+
+int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u32 sta_index,
+			  enum wcn36xx_hal_stats_mask stats_mask,
+			  struct ieee80211_tx_rate *fwrate)
+{
+	struct wcn36xx_hal_stats_req_msg msg_body, *body;
+	size_t len;
+	int ret = 0;
+
+	mutex_lock(&wcn->hal_mutex);
+	INIT_HAL_MSG(msg_body, WCN36XX_HAL_GET_STATS_REQ);
+
+	msg_body.sta_id = sta_index;
+	msg_body.stats_mask = stats_mask;
+
+	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
+
+	body = (struct wcn36xx_hal_stats_req_msg *) wcn->hal_buf;
+	len = msg_body.header.len;
+
+	ret = wcn36xx_smd_send_and_wait(wcn, body->header.len);
+	if (ret) {
+		wcn36xx_err("Sending hal_get_stats failed\n");
+		goto out;
+	}
+	ret = wcn36xx_smd_get_stats_rsp(wcn, wcn->hal_buf,
+					wcn->hal_rsp_len, fwrate);
+	if (ret) {
+		wcn36xx_err("hal_get_stats response failed err=%d\n", ret);
+		goto out;
+	}
+out:
+	mutex_unlock(&wcn->hal_mutex);
+	return ret;
+}
+
 int wcn36xx_smd_add_ba_session(struct wcn36xx *wcn,
 		struct ieee80211_sta *sta,
 		u16 tid,
@@ -2038,6 +2116,7 @@ static void wcn36xx_smd_rsp_process(struct wcn36xx *wcn, void *buf, size_t len)
 	case WCN36XX_HAL_UPDATE_SCAN_PARAM_RSP:
 	case WCN36XX_HAL_CH_SWITCH_RSP:
 	case WCN36XX_HAL_FEATURE_CAPS_EXCHANGE_RSP:
+	case WCN36XX_HAL_GET_STATS_RSP:
 		memcpy(wcn->hal_buf, buf, len);
 		wcn->hal_rsp_len = len;
 		complete(&wcn->hal_rsp_compl);
