@@ -616,7 +616,7 @@ static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 			 * config_sta must be called from  because this is the
 			 * place where AID is available.
 			 */
-			wcn36xx_smd_config_sta(wcn, vif, sta);
+			wcn36xx_smd_config_sta(wcn, vif, sta, 0);
 			rcu_read_unlock();
 		} else {
 			wcn36xx_dbg(WCN36XX_DBG_MAC,
@@ -746,7 +746,10 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (NL80211_IFTYPE_STATION != vif->type) {
 		wcn36xx_update_allowed_rates(sta, WCN36XX_BAND(wcn));
 		sta_priv->aid = sta->aid;
-		wcn36xx_smd_config_sta(wcn, vif, sta);
+		if (!sta_priv->is_rejoin_mesh)
+			wcn36xx_smd_config_sta(wcn, vif, sta, 0);
+		else
+			wcn36xx_smd_config_sta(wcn, vif, sta, 1);
 	}
 	return 0;
 }

@@ -840,7 +840,8 @@ out:
 
 static void wcn36xx_smd_convert_sta_to_v1(struct wcn36xx *wcn,
 			const struct wcn36xx_hal_config_sta_params *orig,
-			struct wcn36xx_hal_config_sta_params_v1 *v1)
+			struct wcn36xx_hal_config_sta_params_v1 *v1,
+			u8 action)
 {
 	/* convert orig to v1 format */
 	memcpy(&v1->bssid, orig->bssid, ETH_ALEN);
@@ -849,6 +850,7 @@ static void wcn36xx_smd_convert_sta_to_v1(struct wcn36xx *wcn,
 	v1->type = orig->type;
 	v1->listen_interval = orig->listen_interval;
 	v1->ht_capable = orig->ht_capable;
+	v1->action = action;
 
 	v1->max_ampdu_size = orig->max_ampdu_size;
 	v1->max_ampdu_density = orig->max_ampdu_density;
@@ -893,7 +895,8 @@ static int wcn36xx_smd_config_sta_rsp(struct wcn36xx *wcn,
 }
 
 static int wcn36xx_smd_config_sta_v1(struct wcn36xx *wcn,
-		     const struct wcn36xx_hal_config_sta_req_msg *orig)
+		     const struct wcn36xx_hal_config_sta_req_msg *orig,
+		     u8 action)
 {
 	struct wcn36xx_hal_config_sta_req_msg_v1 msg_body;
 	struct wcn36xx_hal_config_sta_params_v1 *sta = &msg_body.sta_params;
@@ -901,7 +904,7 @@ static int wcn36xx_smd_config_sta_v1(struct wcn36xx *wcn,
 	INIT_HAL_MSG(msg_body, WCN36XX_HAL_CONFIG_STA_REQ);
 
 	wcn36xx_smd_convert_sta_to_v1(wcn, &orig->sta_params,
-				      &msg_body.sta_params);
+				      &msg_body.sta_params, action);
 
 	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
 
@@ -914,7 +917,7 @@ static int wcn36xx_smd_config_sta_v1(struct wcn36xx *wcn,
 }
 
 int wcn36xx_smd_config_sta(struct wcn36xx *wcn, struct ieee80211_vif *vif,
-			   struct ieee80211_sta *sta)
+			   struct ieee80211_sta *sta, u8 action)
 {
 	struct wcn36xx_hal_config_sta_req_msg msg;
 	struct wcn36xx_hal_config_sta_params *sta_params;
@@ -928,7 +931,7 @@ int wcn36xx_smd_config_sta(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 	wcn36xx_smd_set_sta_params(wcn, vif, sta, sta_params);
 
 	if (!wcn36xx_is_fw_version(wcn, 1, 2, 2, 24)) {
-		ret = wcn36xx_smd_config_sta_v1(wcn, &msg);
+		ret = wcn36xx_smd_config_sta_v1(wcn, &msg, action);
 	} else {
 		PREPARE_HAL_BUF(wcn->hal_buf, msg);
 
@@ -1047,7 +1050,7 @@ static int wcn36xx_smd_config_bss_v1(struct wcn36xx *wcn,
 	msg_body.bss_params.max_tx_power = orig->bss_params.max_tx_power;
 
 	wcn36xx_smd_convert_sta_to_v1(wcn, &orig->bss_params.sta,
-				      &msg_body.bss_params.sta);
+				      &msg_body.bss_params.sta, 0);
 
 	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
 
@@ -2026,6 +2029,8 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 	struct wcn36xx_hal_delete_sta_context_ind_msg *rsp = buf;
 	struct wcn36xx_vif *tmp;
 	struct ieee80211_sta *sta = NULL;
+	struct wcn36xx_sta *sta_priv = NULL;
+	struct ieee80211_vif *vif = NULL;
 
 	if (len != sizeof(*rsp)) {
 		wcn36xx_warn("Corrupted delete sta indication\n");
@@ -2037,11 +2042,15 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 			sta = container_of((void *)tmp->sta,
 						 struct ieee80211_sta,
 						 drv_priv);
-			wcn36xx_dbg(WCN36XX_DBG_HAL,
-				    "delete station indication %pM index %d\n",
-				    rsp->addr2,
-				    rsp->sta_id);
-			ieee80211_report_low_ack(sta, 0);
+			vif = container_of((void *)tmp, struct ieee80211_vif,
+					   drv_priv);
+			sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+			wcn36xx_warn("STA %pM index %d is leaving\n",
+				     rsp->addr2, rsp->sta_id);
+			if (vif->type == NL80211_IFTYPE_MESH_POINT) {
+				sta_priv->is_rejoin_mesh = true;
+				wcn36xx_smd_config_sta(wcn, vif, sta, 1);
+			}
 			return 0;
 		}
 	}
