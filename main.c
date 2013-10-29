@@ -484,6 +484,8 @@ static void wcn36xx_update_allowed_rates(struct wcn36xx *wcn,
 	}
 }
 
+#define BSS_CHANGED_BEACON_INFO 1<<20
+
 static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 				     struct ieee80211_vif *vif,
 				     struct ieee80211_bss_conf *bss_conf,
@@ -897,8 +899,10 @@ static int wcn36xx_init_ieee80211(struct wcn36xx *wcn)
 
 	wcn->hw->wiphy->flags |= WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD;
 
+#if 0
 #ifdef CONFIG_PM
 	wcn->hw->wiphy->wowlan = &wowlan_support;
+#endif
 #endif
 
 	wcn->hw->wiphy->n_addresses = 1;
