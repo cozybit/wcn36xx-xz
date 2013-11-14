@@ -123,4 +123,8 @@ int wcn36xx_smd_update_cfg(struct wcn36xx *wcn, u32 cfg_id, u32 value);
 int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u32 sta_index,
 			  enum wcn36xx_hal_stats_mask stats_mask,
 			  void *stats);
+
+struct wcn36xx_vif;
+struct wcn36xx_sta* wcn36xx_find_sta(struct wcn36xx_vif *priv, u8 *mac_addr);
+
 #endif	/* _SMD_H_ */
