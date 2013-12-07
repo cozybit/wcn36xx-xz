@@ -116,6 +116,22 @@ static void wcn36xx_smd_set_sta_ht_params(struct ieee80211_sta *sta,
 	}
 }
 
+static void wcn36xx_smd_set_sta_default_ht_params(
+		struct wcn36xx_hal_config_sta_params *sta_params)
+{
+	sta_params->ht_capable = 1;
+	sta_params->tx_channel_width_set = 1;
+	sta_params->lsig_txop_protection = 1;
+	sta_params->max_ampdu_size = 3;
+	sta_params->max_ampdu_density = 5;
+	sta_params->max_amsdu_size = 0;
+	sta_params->sgi_20Mhz = 1;
+	sta_params->sgi_40mhz = 1;
+	sta_params->green_field_capable = 1;
+	sta_params->delayed_ba_support = 0;
+	sta_params->dsss_cck_mode_40mhz = 1;
+}
+
 static void wcn36xx_smd_set_sta_params(struct wcn36xx *wcn,
 		struct ieee80211_vif *vif,
 		struct ieee80211_sta *sta,
@@ -173,6 +189,7 @@ static void wcn36xx_smd_set_sta_params(struct wcn36xx *wcn,
 			sizeof(priv_sta->supported_rates));
 	} else {
 		wcn36xx_set_default_rates(&sta_params->supported_rates);
+		wcn36xx_smd_set_sta_default_ht_params(sta_params);
 	}
 }
 
@@ -1140,7 +1157,8 @@ int wcn36xx_smd_config_bss(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 		/* STA */
 		bss->oper_mode = 1;
 		bss->wcn36xx_hal_persona = WCN36XX_HAL_STA_MODE;
-	} else if (vif->type == NL80211_IFTYPE_AP) {
+	} else if (vif->type == NL80211_IFTYPE_AP ||
+		   vif->type == NL80211_IFTYPE_MESH_POINT) {
 		bss->bss_type = WCN36XX_HAL_INFRA_AP_MODE;
 
 		/* AP */
@@ -1297,13 +1315,14 @@ int wcn36xx_smd_send_beacon(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 	} else {
 		wcn36xx_err("Beacon is to big: beacon size=%d\n",
 			      msg_body.beacon_length);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto out;
 	}
 	memcpy(msg_body.bssid, vif->addr, ETH_ALEN);
 
 	/* TODO need to find out why this is needed? */
 	if (vif->type == NL80211_IFTYPE_MESH_POINT)
-		/* Work around for mesh, we don't need this */
+		/* mesh beacon don't need this, so push further down */
 		msg_body.tim_ie_offset = 256;
 	else
 		msg_body.tim_ie_offset = tim_off+4;
@@ -1342,7 +1361,8 @@ int wcn36xx_smd_update_proberesp_tmpl(struct wcn36xx *wcn,
 	if (skb->len > BEACON_TEMPLATE_SIZE) {
 		wcn36xx_warn("probe response template is too big: %d\n",
 			     skb->len);
-		return -E2BIG;
+		ret = -E2BIG;
+		goto out;
 	}
 
 	msg.probe_resp_template_len = skb->len;
@@ -1621,19 +1641,20 @@ int wcn36xx_smd_keep_alive_req(struct wcn36xx *wcn,
 		/* TODO: it also support ARP response type */
 	} else {
 		wcn36xx_warn("unknow keep alive packet type %d\n", packet_type);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
 
 	ret = wcn36xx_smd_send_and_wait(wcn, msg_body.header.len);
 	if (ret) {
-		wcn36xx_err("Sending hal_exit_bmps failed\n");
+		wcn36xx_err("Sending hal_keep_alive failed\n");
 		goto out;
 	}
 	ret = wcn36xx_smd_rsp_status_check(wcn->hal_buf, wcn->hal_rsp_len);
 	if (ret) {
-		wcn36xx_err("hal_exit_bmps response failed err=%d\n", ret);
+		wcn36xx_err("hal_keep_alive response failed err=%d\n", ret);
 		goto out;
 	}
 out:
@@ -1673,8 +1694,7 @@ out:
 	return ret;
 }
 
-static inline void set_feat_caps(u32 *bitmap,
-				 enum place_holder_in_cap_bitmap cap)
+void set_feat_caps(u32 *bitmap, enum place_holder_in_cap_bitmap cap)
 {
 	int arr_idx, bit_idx;
 
@@ -1688,8 +1708,7 @@ static inline void set_feat_caps(u32 *bitmap,
 	bitmap[arr_idx] |= (1 << bit_idx);
 }
 
-static inline int get_feat_caps(u32 *bitmap,
-				enum place_holder_in_cap_bitmap cap)
+int get_feat_caps(u32 *bitmap, enum place_holder_in_cap_bitmap cap)
 {
 	int arr_idx, bit_idx;
 	int ret = 0;
@@ -1705,8 +1724,7 @@ static inline int get_feat_caps(u32 *bitmap,
 	return ret;
 }
 
-static inline void clear_feat_caps(u32 *bitmap,
-				enum place_holder_in_cap_bitmap cap)
+void clear_feat_caps(u32 *bitmap, enum place_holder_in_cap_bitmap cap)
 {
 	int arr_idx, bit_idx;
 
@@ -1722,8 +1740,9 @@ static inline void clear_feat_caps(u32 *bitmap,
 
 int wcn36xx_smd_feature_caps_exchange(struct wcn36xx *wcn)
 {
-	struct wcn36xx_hal_feat_caps_msg msg_body;
-	int ret = 0;
+	struct wcn36xx_hal_feat_caps_msg msg_body, *rsp;
+
+	int ret = 0, i;
 
 	mutex_lock(&wcn->hal_mutex);
 	INIT_HAL_MSG(msg_body, WCN36XX_HAL_FEATURE_CAPS_EXCHANGE_REQ);
@@ -1737,12 +1756,16 @@ int wcn36xx_smd_feature_caps_exchange(struct wcn36xx *wcn)
 		wcn36xx_err("Sending hal_feature_caps_exchange failed\n");
 		goto out;
 	}
-	ret = wcn36xx_smd_rsp_status_check(wcn->hal_buf, wcn->hal_rsp_len);
-	if (ret) {
-		wcn36xx_err("hal_feature_caps_exchange response failed err=%d\n",
-			    ret);
+
+	if (wcn->hal_rsp_len != sizeof(*rsp)) {
+		wcn36xx_err("Invalid hal_feature_caps_exchange response");
 		goto out;
 	}
+
+	rsp = (struct wcn36xx_hal_feat_caps_msg *) wcn->hal_buf;
+
+	for (i = 0; i < WCN36XX_HAL_CAPS_SIZE; i++)
+		wcn->fw_feat_caps[i] = rsp->feat_caps[i];
 out:
 	mutex_unlock(&wcn->hal_mutex);
 	return ret;

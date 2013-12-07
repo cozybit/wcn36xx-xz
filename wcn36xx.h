@@ -55,7 +55,7 @@ enum wcn36xx_debug_mask {
 };
 
 #define wcn36xx_err(fmt, arg...)				\
-	printk(KERN_ERR pr_fmt("ERROR " fmt), ##arg);
+	printk(KERN_ERR pr_fmt("ERROR " fmt), ##arg)
 
 #define wcn36xx_warn(fmt, arg...)				\
 	printk(KERN_WARNING pr_fmt("WARNING " fmt), ##arg)
@@ -182,6 +182,8 @@ struct wcn36xx {
 	u8			fw_version;
 	u8			fw_minor;
 	u8			fw_major;
+	u32			fw_feat_caps[WCN36XX_HAL_CAPS_SIZE];
+	u32			chip_version;
 
 	/* extra byte for the NULL termination */
 	u8			crm_version[WCN36XX_HAL_VERSION_LENGTH + 1];
@@ -228,6 +230,9 @@ struct wcn36xx {
 #endif /* CONFIG_WCN36XX_DEBUGFS */
 
 };
+
+#define WCN36XX_CHIP_3660	0
+#define WCN36XX_CHIP_3680	1
 
 static inline bool wcn36xx_is_fw_version(struct wcn36xx *wcn,
 					 u8 major,
