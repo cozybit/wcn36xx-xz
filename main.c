@@ -127,7 +127,8 @@ static struct ieee80211_supported_band wcn_band_2ghz = {
 		.cap =	IEEE80211_HT_CAP_GRN_FLD |
 			IEEE80211_HT_CAP_SGI_20 |
 			IEEE80211_HT_CAP_DSSSCCK40 |
-			IEEE80211_HT_CAP_LSIG_TXOP_PROT,
+			IEEE80211_HT_CAP_LSIG_TXOP_PROT |
+			IEEE80211_HT_CAP_SUP_WIDTH_20_40,
 		.ht_supported = true,
 		.ampdu_factor = IEEE80211_HT_MAX_AMPDU_64K,
 		.ampdu_density = IEEE80211_HT_MPDU_DENSITY_16,
@@ -297,7 +298,14 @@ static int wcn36xx_start(struct ieee80211_hw *hw)
 
 	wcn36xx_debugfs_init(wcn);
 
+	if (!wcn36xx_is_fw_version(wcn, 1, 2, 2, 24)) {
+		ret = wcn36xx_smd_feature_caps_exchange(wcn);
+		if (ret)
+			wcn36xx_warn("Exchange feature caps failed\n");
+	}
+
 	INIT_LIST_HEAD(&wcn->vif_list);
+
 	return 0;
 
 out_smd_stop:
@@ -674,7 +682,7 @@ static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 			 * config_sta must be called from  because this is the
 			 * place where AID is available.
 			 */
-			wcn36xx_smd_config_sta(wcn, vif, sta);
+			wcn36xx_smd_config_sta(wcn, vif, sta, 0);
 			rcu_read_unlock();
 		} else {
 			wcn36xx_dbg(WCN36XX_DBG_MAC,
@@ -729,9 +737,12 @@ static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 			wcn36xx_smd_set_link_st(wcn, vif->addr, vif->addr,
 						link_state);
 		} else {
-			wcn36xx_smd_set_link_st(wcn, vif->addr, vif->addr,
+			if (vif->type != NL80211_IFTYPE_MESH_POINT) {
+				wcn36xx_smd_set_link_st(wcn, vif->addr,
+						vif->addr,
 						WCN36XX_HAL_LINK_IDLE_STATE);
-			wcn36xx_smd_delete_bss(wcn, vif);
+				wcn36xx_smd_delete_bss(wcn, vif);
+			}
 		}
 	}
 out:
@@ -777,6 +788,9 @@ static int wcn36xx_add_interface(struct ieee80211_hw *hw,
 		return -EOPNOTSUPP;
 	}
 
+	INIT_LIST_HEAD(&vif_priv->sta_list);
+	spin_lock_init(&vif_priv->sta_list_spinlock);
+
 	list_add(&vif_priv->list, &wcn->vif_list);
 	wcn36xx_smd_add_sta_self(wcn, vif);
 
@@ -789,11 +803,23 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
 	struct wcn36xx_sta *sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+	struct wcn36xx_sta *sta_priv_existing = NULL;
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac sta add vif %p sta %pM\n",
 		    vif, sta->addr);
 
 	vif_priv->sta = sta_priv;
 	sta_priv->vif = vif_priv;
+
+	spin_lock(&vif_priv->sta_list_spinlock);
+	sta_priv_existing = wcn36xx_find_sta(vif_priv, sta->addr);
+
+	if (sta_priv_existing)
+		sta_priv = sta_priv_existing;
+	else
+		list_add(&sta_priv->list, &vif_priv->sta_list);
+
+	spin_unlock(&vif_priv->sta_list_spinlock);
+
 	/*
 	 * For STA mode HW will be configured on BSS_CHANGED_ASSOC because
 	 * at this stage AID is not available yet.
@@ -801,8 +827,12 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (NL80211_IFTYPE_STATION != vif->type) {
 		wcn36xx_update_allowed_rates(sta, WCN36XX_BAND(wcn));
 		sta_priv->aid = sta->aid;
-		wcn36xx_smd_config_sta(wcn, vif, sta);
+		if (sta_priv_existing)
+			wcn36xx_smd_config_sta(wcn, vif, sta, 1);
+		else
+			wcn36xx_smd_config_sta(wcn, vif, sta, 0);
 	}
+
 	return 0;
 }
 
@@ -813,13 +843,61 @@ static int wcn36xx_sta_remove(struct ieee80211_hw *hw,
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
 	struct wcn36xx_sta *sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+	struct wcn36xx_sta *sta_priv_existing = NULL;
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac sta remove vif %p sta %pM index %d\n",
 		    vif, sta->addr, sta_priv->sta_index);
 
-	wcn36xx_smd_delete_sta(wcn, sta_priv->sta_index);
+	spin_lock(&vif_priv->sta_list_spinlock);
+	sta_priv_existing = wcn36xx_find_sta(vif_priv, sta->addr);
+
+	if (sta_priv_existing)
+		list_del(&sta_priv_existing->list);
+
+	spin_unlock(&vif_priv->sta_list_spinlock);
+
 	vif_priv->sta = NULL;
-	sta_priv->vif = NULL;
+
+	if (sta_priv_existing) {
+		sta_priv_existing->vif = NULL;
+		wcn36xx_smd_delete_sta(wcn, sta_priv_existing->sta_index);
+	}
+	else {
+		sta_priv->vif = NULL;
+		wcn36xx_smd_delete_sta(wcn, sta_priv_existing->sta_index);
+	}
+
+	return 0;
+}
+
+static int wcn36xx_link_stats(struct ieee80211_hw *hw,
+			      struct ieee80211_vif *vif,
+			      u8 *peer,
+			      struct ieee80211_link_stats *stats)
+{
+	struct wcn36xx *wcn = hw->priv;
+	struct wcn36xx_sta *sta_priv;
+	struct ieee80211_tx_rate *fwrate;
+	struct ieee80211_sta *sta;
+	unsigned int *fail_avg;
+	u8 sta_index;
+
+	rcu_read_lock();
+	sta = ieee80211_find_sta(vif, peer);
+	if (!sta) {
+		wcn36xx_err("sta %pM is not found\n", peer);
+		rcu_read_unlock();
+		return -EINVAL;
+	}
+	sta_priv = (struct wcn36xx_sta *)sta->drv_priv;
+	fwrate = &stats->last_tx_rate;
+	fail_avg = &stats->fail_avg;
+	sta_index = get_sta_index(vif, sta_priv);
+	wcn36xx_smd_get_stats(wcn, sta_index,
+			      HAL_GLOBAL_CLASS_A_STATS_INFO, fwrate);
+	wcn36xx_smd_get_stats(wcn, sta_index,
+			      HAL_SUMMARY_STATS_INFO, fail_avg);
+	rcu_read_unlock();
 	return 0;
 }
 
@@ -914,6 +992,7 @@ static const struct ieee80211_ops wcn36xx_ops = {
 	.sta_add		= wcn36xx_sta_add,
 	.sta_remove		= wcn36xx_sta_remove,
 	.ampdu_action		= wcn36xx_ampdu_action,
+	.get_link_stats		= wcn36xx_link_stats,
 };
 
 static int wcn36xx_init_ieee80211(struct wcn36xx *wcn)

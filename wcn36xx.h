@@ -122,6 +122,10 @@ struct wcn36xx_vif {
 	bool is_joining;
 	struct wcn36xx_hal_mac_ssid ssid;
 
+	struct list_head sta_list;
+	/* spin lock for associated station list */
+	spinlock_t sta_list_spinlock;
+
 	/* Power management */
 	enum wcn36xx_power_state pw_state;
 
@@ -155,6 +159,7 @@ struct wcn36xx_vif {
  * |______________|_____________|_______________|
  */
 struct wcn36xx_sta {
+	struct list_head list;
 	struct wcn36xx_vif *vif;
 	u16 aid;
 	u16 tid;
@@ -165,6 +170,7 @@ struct wcn36xx_sta {
 	bool is_data_encrypted;
 	/* Rates */
 	struct wcn36xx_hal_supported_rates supported_rates;
+	u8 mac_addr[ETH_ALEN];
 };
 struct wcn36xx_dxe_ch;
 struct wcn36xx {
