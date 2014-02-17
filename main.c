@@ -735,12 +735,9 @@ static void wcn36xx_bss_info_changed(struct ieee80211_hw *hw,
 			wcn36xx_smd_set_link_st(wcn, vif->addr, vif->addr,
 						link_state);
 		} else {
-			if (vif->type != NL80211_IFTYPE_MESH_POINT) {
-				wcn36xx_smd_set_link_st(wcn, vif->addr,
-						vif->addr,
+			wcn36xx_smd_set_link_st(wcn, vif->addr, vif->addr,
 						WCN36XX_HAL_LINK_IDLE_STATE);
-				wcn36xx_smd_delete_bss(wcn, vif);
-			}
+			wcn36xx_smd_delete_bss(wcn, vif);
 		}
 	}
 out:
