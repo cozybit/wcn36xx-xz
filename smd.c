@@ -860,8 +860,7 @@ out:
 
 static void wcn36xx_smd_convert_sta_to_v1(struct wcn36xx *wcn,
 			const struct wcn36xx_hal_config_sta_params *orig,
-			struct wcn36xx_hal_config_sta_params_v1 *v1,
-			u8 action)
+			struct wcn36xx_hal_config_sta_params_v1 *v1)
 {
 	/* convert orig to v1 format */
 	memcpy(&v1->bssid, orig->bssid, ETH_ALEN);
@@ -870,7 +869,6 @@ static void wcn36xx_smd_convert_sta_to_v1(struct wcn36xx *wcn,
 	v1->type = orig->type;
 	v1->listen_interval = orig->listen_interval;
 	v1->ht_capable = orig->ht_capable;
-	v1->action = action;
 
 	v1->max_ampdu_size = orig->max_ampdu_size;
 	v1->max_ampdu_density = orig->max_ampdu_density;
@@ -907,8 +905,6 @@ static int wcn36xx_smd_config_sta_rsp(struct wcn36xx *wcn,
 	sta_priv->dpu_desc_index = params->dpu_index;
 	sta_priv->ucast_dpu_sign = params->uc_ucast_sig;
 
-	memcpy(sta_priv->mac_addr, sta->addr, ETH_ALEN);
-
 	wcn36xx_dbg(WCN36XX_DBG_HAL,
 		    "hal config sta rsp status %d sta_index %d bssid_index %d uc_ucast_sig %d p2p %d\n",
 		    params->status, params->sta_index, params->bssid_index,
@@ -918,8 +914,7 @@ static int wcn36xx_smd_config_sta_rsp(struct wcn36xx *wcn,
 }
 
 static int wcn36xx_smd_config_sta_v1(struct wcn36xx *wcn,
-		     const struct wcn36xx_hal_config_sta_req_msg *orig,
-		     u8 action)
+		     const struct wcn36xx_hal_config_sta_req_msg *orig)
 {
 	struct wcn36xx_hal_config_sta_req_msg_v1 msg_body;
 	struct wcn36xx_hal_config_sta_params_v1 *sta = &msg_body.sta_params;
@@ -927,7 +922,7 @@ static int wcn36xx_smd_config_sta_v1(struct wcn36xx *wcn,
 	INIT_HAL_MSG(msg_body, WCN36XX_HAL_CONFIG_STA_REQ);
 
 	wcn36xx_smd_convert_sta_to_v1(wcn, &orig->sta_params,
-				      &msg_body.sta_params, action);
+				      &msg_body.sta_params);
 
 	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
 
@@ -940,7 +935,7 @@ static int wcn36xx_smd_config_sta_v1(struct wcn36xx *wcn,
 }
 
 int wcn36xx_smd_config_sta(struct wcn36xx *wcn, struct ieee80211_vif *vif,
-			   struct ieee80211_sta *sta, u8 action)
+			   struct ieee80211_sta *sta)
 {
 	struct wcn36xx_hal_config_sta_req_msg msg;
 	struct wcn36xx_hal_config_sta_params *sta_params;
@@ -954,7 +949,7 @@ int wcn36xx_smd_config_sta(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 	wcn36xx_smd_set_sta_params(wcn, vif, sta, sta_params);
 
 	if (!wcn36xx_is_fw_version(wcn, 1, 2, 2, 24)) {
-		ret = wcn36xx_smd_config_sta_v1(wcn, &msg, action);
+		ret = wcn36xx_smd_config_sta_v1(wcn, &msg);
 	} else {
 		PREPARE_HAL_BUF(wcn->hal_buf, msg);
 
@@ -1073,7 +1068,7 @@ static int wcn36xx_smd_config_bss_v1(struct wcn36xx *wcn,
 	msg_body.bss_params.max_tx_power = orig->bss_params.max_tx_power;
 
 	wcn36xx_smd_convert_sta_to_v1(wcn, &orig->bss_params.sta,
-				      &msg_body.bss_params.sta, 0);
+				      &msg_body.bss_params.sta);
 
 	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
 
@@ -2070,8 +2065,6 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 	struct wcn36xx_hal_delete_sta_context_ind_msg *rsp = buf;
 	struct wcn36xx_vif *tmp;
 	struct ieee80211_sta *sta = NULL;
-	struct wcn36xx_sta *sta_priv = NULL;
-	struct ieee80211_vif *vif = NULL;
 
 	if (len != sizeof(*rsp)) {
 		wcn36xx_warn("Corrupted delete sta indication\n");
@@ -2079,27 +2072,22 @@ static int wcn36xx_smd_delete_sta_context_ind(struct wcn36xx *wcn,
 	}
 
 	list_for_each_entry(tmp, &wcn->vif_list, list) {
-
-        wcn36xx_warn("STA %pM index %d is leaving\n", rsp->addr2, rsp->sta_id);
-
-        sta_priv = wcn36xx_find_sta(tmp, rsp->addr2);
-        if(!sta_priv)
-            continue;
-
-        sta = container_of((void *)sta_priv, struct ieee80211_sta, drv_priv);
-        vif = container_of((void *)tmp, struct ieee80211_vif, drv_priv);
-
-        if (vif->type == NL80211_IFTYPE_MESH_POINT) {
-            wcn36xx_smd_config_sta(wcn, vif, sta, 1);
-        }
-
-        return 0;
+		if (sta && (tmp->sta->sta_index == rsp->sta_id)) {
+			sta = container_of((void *)tmp->sta,
+						 struct ieee80211_sta,
+						 drv_priv);
+			wcn36xx_dbg(WCN36XX_DBG_HAL,
+				    "delete station indication %pM index %d\n",
+				    rsp->addr2,
+				    rsp->sta_id);
+			ieee80211_report_low_ack(sta, 0);
+			return 0;
+		}
 	}
 
 	wcn36xx_warn("STA with addr %pM and index %d not found\n",
 		     rsp->addr2,
 		     rsp->sta_id);
-
 	return -ENOENT;
 }
 
@@ -2286,22 +2274,3 @@ void wcn36xx_smd_close(struct wcn36xx *wcn)
 	destroy_workqueue(wcn->hal_ind_wq);
 	mutex_destroy(&wcn->hal_ind_mutex);
 }
-
-/**
- * Assumes lock wcn36xx_vif->sta_list_spinlock is already held.
- */
-struct wcn36xx_sta* wcn36xx_find_sta(struct wcn36xx_vif *priv, u8 *mac_addr)
-{
-    struct wcn36xx_sta* entry = NULL;
-
-    if (!mac_addr)
-        return NULL;
-
-    list_for_each_entry(entry, &priv->sta_list, list) {
-        if (!memcmp(entry->mac_addr, mac_addr, ETH_ALEN))
-            return entry;
-    }
-
-    return NULL;
-}
-
