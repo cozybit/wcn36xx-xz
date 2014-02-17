@@ -103,9 +103,7 @@ static inline struct wcn36xx_vif *get_vif_by_addr(struct wcn36xx *wcn,
 	struct wcn36xx_vif *vif_priv = NULL;
 	struct ieee80211_vif *vif = NULL;
 	list_for_each_entry(vif_priv, &wcn->vif_list, list) {
-			vif = container_of((void *)vif_priv,
-				   struct ieee80211_vif,
-				   drv_priv);
+			vif = wcn36xx_priv_to_vif(vif_priv);
 			if (memcmp(vif->addr, addr, ETH_ALEN) == 0)
 				return vif_priv;
 	}
@@ -129,10 +127,9 @@ static void wcn36xx_set_tx_data(struct wcn36xx_tx_bd *bd,
 	 */
 	if (sta_priv) {
 		__vif_priv = sta_priv->vif;
-		vif = container_of((void *)__vif_priv,
-				   struct ieee80211_vif,
-				   drv_priv);
+		vif = wcn36xx_priv_to_vif(__vif_priv);
 
+		bd->dpu_sign = sta_priv->ucast_dpu_sign;
 		if (vif->type == NL80211_IFTYPE_STATION) {
 			bd->sta_index = sta_priv->bss_sta_index;
 			bd->dpu_desc_idx = sta_priv->bss_dpu_desc_index;
@@ -146,9 +143,8 @@ static void wcn36xx_set_tx_data(struct wcn36xx_tx_bd *bd,
 		__vif_priv = get_vif_by_addr(wcn, hdr->addr2);
 		bd->sta_index = __vif_priv->self_sta_index;
 		bd->dpu_desc_idx = __vif_priv->self_dpu_desc_index;
+		bd->dpu_sign = __vif_priv->self_ucast_dpu_sign;
 	}
-
-	bd->dpu_sign = __vif_priv->ucast_dpu_signature;
 
 	if (ieee80211_is_nullfunc(hdr->frame_control) ||
 	   (sta_priv && !sta_priv->is_data_encrypted))

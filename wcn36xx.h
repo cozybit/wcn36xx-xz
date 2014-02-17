@@ -130,10 +130,10 @@ struct wcn36xx_vif {
 	enum wcn36xx_power_state pw_state;
 
 	u8 bss_index;
-	u8 ucast_dpu_signature;
 	/* Returned from WCN36XX_HAL_ADD_STA_SELF_RSP */
 	u8 self_sta_index;
 	u8 self_dpu_desc_index;
+	u8 self_ucast_dpu_sign;
 };
 
 /**
@@ -165,6 +165,7 @@ struct wcn36xx_sta {
 	u16 tid;
 	u8 sta_index;
 	u8 dpu_desc_index;
+	u8 ucast_dpu_sign;
 	u8 bss_sta_index;
 	u8 bss_dpu_desc_index;
 	bool is_data_encrypted;
@@ -177,6 +178,8 @@ struct wcn36xx {
 	struct ieee80211_hw	*hw;
 	struct device		*dev;
 	struct list_head	vif_list;
+
+	const struct firmware	*nv;
 
 	u8			fw_revision;
 	u8			fw_version;
@@ -246,5 +249,17 @@ static inline bool wcn36xx_is_fw_version(struct wcn36xx *wcn,
 		wcn->fw_revision == revision);
 }
 void wcn36xx_set_default_rates(struct wcn36xx_hal_supported_rates *rates);
+
+static inline
+struct wcn36xx_vif *wcn36xx_vif_to_priv(struct ieee80211_vif *vif)
+{
+	return (struct wcn36xx_vif *) vif->drv_priv;
+}
+
+static inline
+struct ieee80211_vif *wcn36xx_priv_to_vif(struct wcn36xx_vif *vif_priv)
+{
+	return container_of((void *) vif_priv, struct ieee80211_vif, drv_priv);
+}
 
 #endif	/* _WCN36XX_H_ */

@@ -137,7 +137,7 @@ static void wcn36xx_smd_set_sta_params(struct wcn36xx *wcn,
 		struct ieee80211_sta *sta,
 		struct wcn36xx_hal_config_sta_params *sta_params)
 {
-	struct wcn36xx_vif *priv_vif = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 	struct wcn36xx_sta *priv_sta = NULL;
 	if (vif->type == NL80211_IFTYPE_ADHOC ||
 	    vif->type == NL80211_IFTYPE_AP ||
@@ -161,7 +161,7 @@ static void wcn36xx_smd_set_sta_params(struct wcn36xx *wcn,
 	else
 		memcpy(&sta_params->bssid, vif->addr, ETH_ALEN);
 
-	sta_params->encrypt_type = priv_vif->encrypt_type;
+	sta_params->encrypt_type = vif_priv->encrypt_type;
 	sta_params->short_preamble_supported =
 		!(WCN36XX_FLAGS(wcn) &
 		  IEEE80211_HW_2GHZ_SHORT_PREAMBLE_INCAPABLE);
@@ -172,7 +172,7 @@ static void wcn36xx_smd_set_sta_params(struct wcn36xx *wcn,
 	sta_params->uapsd = 0;
 	sta_params->mimo_ps = WCN36XX_HAL_HT_MIMO_PS_STATIC;
 	sta_params->max_ampdu_duration = 0;
-	sta_params->bssid_index = priv_vif->bss_index;
+	sta_params->bssid_index = vif_priv->bss_index;
 	sta_params->p2p = 0;
 
 	if (sta) {
@@ -213,7 +213,7 @@ static int wcn36xx_smd_send_and_wait(struct wcn36xx *wcn, size_t len)
 		ret = -ETIME;
 		goto out;
 	}
-	wcn36xx_dbg(WCN36XX_DBG_SMD, "SMD command completed in %dms",
+	wcn36xx_dbg(WCN36XX_DBG_SMD, "SMD command completed in %dms\n",
 		    jiffies_to_msecs(jiffies - start));
 out:
 	return ret;
@@ -252,21 +252,22 @@ static int wcn36xx_smd_rsp_status_check(void *buf, size_t len)
 
 int wcn36xx_smd_load_nv(struct wcn36xx *wcn)
 {
-	const struct firmware *nv;
 	struct nv_data *nv_d;
 	struct wcn36xx_hal_nv_img_download_req_msg msg_body;
 	int fw_bytes_left;
 	int ret;
 	u16 fm_offset = 0;
 
-	ret = request_firmware(&nv, WLAN_NV_FILE, wcn->dev);
-	if (ret) {
-		wcn36xx_err("Failed to load nv file %s: %d\n",
-			      WLAN_NV_FILE, ret);
-		goto out_free_nv;
+	if (!wcn->nv) {
+		ret = request_firmware(&wcn->nv, WLAN_NV_FILE, wcn->dev);
+		if (ret) {
+			wcn36xx_err("Failed to load nv file %s: %d\n",
+				      WLAN_NV_FILE, ret);
+			goto out;
+		}
 	}
 
-	nv_d = (struct nv_data *)nv->data;
+	nv_d = (struct nv_data *)wcn->nv->data;
 	INIT_HAL_MSG(msg_body, WCN36XX_HAL_DOWNLOAD_NV_REQ);
 
 	msg_body.header.len += WCN36XX_NV_FRAGMENT_SIZE;
@@ -276,7 +277,7 @@ int wcn36xx_smd_load_nv(struct wcn36xx *wcn)
 	mutex_lock(&wcn->hal_mutex);
 
 	do {
-		fw_bytes_left = nv->size - fm_offset - 4;
+		fw_bytes_left = wcn->nv->size - fm_offset - 4;
 		if (fw_bytes_left > WCN36XX_NV_FRAGMENT_SIZE) {
 			msg_body.last_fragment = 0;
 			msg_body.nv_img_buffer_size = WCN36XX_NV_FRAGMENT_SIZE;
@@ -314,10 +315,7 @@ int wcn36xx_smd_load_nv(struct wcn36xx *wcn)
 
 out_unlock:
 	mutex_unlock(&wcn->hal_mutex);
-out_free_nv:
-	release_firmware(nv);
-
-	return ret;
+out:	return ret;
 }
 
 static int wcn36xx_smd_start_rsp(struct wcn36xx *wcn, void *buf, size_t len)
@@ -646,7 +644,7 @@ static int wcn36xx_smd_add_sta_self_rsp(struct wcn36xx *wcn,
 					size_t len)
 {
 	struct wcn36xx_hal_add_sta_self_rsp_msg *rsp;
-	struct wcn36xx_vif *priv_vif = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 
 	if (len < sizeof(*rsp))
 		return -EINVAL;
@@ -663,8 +661,8 @@ static int wcn36xx_smd_add_sta_self_rsp(struct wcn36xx *wcn,
 		    "hal add sta self status %d self_sta_index %d dpu_index %d\n",
 		    rsp->status, rsp->self_sta_index, rsp->dpu_index);
 
-	priv_vif->self_sta_index = rsp->self_sta_index;
-	priv_vif->self_dpu_desc_index = rsp->dpu_index;
+	vif_priv->self_sta_index = rsp->self_sta_index;
+	vif_priv->self_dpu_desc_index = rsp->dpu_index;
 
 	return 0;
 }
@@ -907,13 +905,14 @@ static int wcn36xx_smd_config_sta_rsp(struct wcn36xx *wcn,
 
 	sta_priv->sta_index = params->sta_index;
 	sta_priv->dpu_desc_index = params->dpu_index;
+	sta_priv->ucast_dpu_sign = params->uc_ucast_sig;
 
 	memcpy(sta_priv->mac_addr, sta->addr, ETH_ALEN);
 
 	wcn36xx_dbg(WCN36XX_DBG_HAL,
-		    "hal config sta rsp status %d sta_index %d bssid_index %d p2p %d\n",
+		    "hal config sta rsp status %d sta_index %d bssid_index %d uc_ucast_sig %d p2p %d\n",
 		    params->status, params->sta_index, params->bssid_index,
-		    params->p2p);
+		    params->uc_ucast_sig, params->p2p);
 
 	return 0;
 }
@@ -1099,7 +1098,7 @@ static int wcn36xx_smd_config_bss_rsp(struct wcn36xx *wcn,
 {
 	struct wcn36xx_hal_config_bss_rsp_msg *rsp;
 	struct wcn36xx_hal_config_bss_rsp_params *params;
-	struct wcn36xx_vif *priv_vif = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 
 	if (len < sizeof(*rsp))
 		return -EINVAL;
@@ -1122,14 +1121,14 @@ static int wcn36xx_smd_config_bss_rsp(struct wcn36xx *wcn,
 		    params->bss_bcast_sta_idx, params->mac,
 		    params->tx_mgmt_power, params->ucast_dpu_signature);
 
-	priv_vif->bss_index = params->bss_index;
+	vif_priv->bss_index = params->bss_index;
 
-	if (priv_vif->sta) {
-		priv_vif->sta->bss_sta_index =  params->bss_sta_index;
-		priv_vif->sta->bss_dpu_desc_index = params->dpu_desc_index;
+	if (vif_priv->sta) {
+		vif_priv->sta->bss_sta_index =  params->bss_sta_index;
+		vif_priv->sta->bss_dpu_desc_index = params->dpu_desc_index;
 	}
 
-	priv_vif->ucast_dpu_signature = params->ucast_dpu_signature;
+	vif_priv->self_ucast_dpu_sign = params->ucast_dpu_signature;
 
 	return 0;
 }
@@ -1141,7 +1140,7 @@ int wcn36xx_smd_config_bss(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 	struct wcn36xx_hal_config_bss_req_msg msg;
 	struct wcn36xx_hal_config_bss_params *bss;
 	struct wcn36xx_hal_config_sta_params *sta_params;
-	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 	int ret = 0;
 
 	mutex_lock(&wcn->hal_mutex);
@@ -1273,13 +1272,13 @@ out:
 int wcn36xx_smd_delete_bss(struct wcn36xx *wcn, struct ieee80211_vif *vif)
 {
 	struct wcn36xx_hal_delete_bss_req_msg msg_body;
-	struct wcn36xx_vif *priv_vif = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 	int ret = 0;
 
 	mutex_lock(&wcn->hal_mutex);
 	INIT_HAL_MSG(msg_body, WCN36XX_HAL_DELETE_BSS_REQ);
 
-	msg_body.bss_index = priv_vif->bss_index;
+	msg_body.bss_index = vif_priv->bss_index;
 
 	PREPARE_HAL_BUF(wcn->hal_buf, msg_body);
 
@@ -1305,25 +1304,41 @@ int wcn36xx_smd_send_beacon(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 			    u16 p2p_off)
 {
 	struct wcn36xx_hal_send_beacon_req_msg msg_body;
-	int ret = 0;
+	int ret = 0, pad, pvm_len;
 
 	mutex_lock(&wcn->hal_mutex);
 	INIT_HAL_MSG(msg_body, WCN36XX_HAL_SEND_BEACON_REQ);
 
-	/* TODO need to find out why this is needed? */
-	msg_body.beacon_length = skb_beacon->len + 6;
+	pvm_len = skb_beacon->data[tim_off + 1] - 3;
+	pad = TIM_MIN_PVM_SIZE - pvm_len;
+	msg_body.beacon_length = skb_beacon->len + pad;
+	/* TODO need to find out why + 6 is needed */
+	msg_body.beacon_length6 = msg_body.beacon_length + 6;
 
-	if (BEACON_TEMPLATE_SIZE > msg_body.beacon_length) {
-		memcpy(&msg_body.beacon, &skb_beacon->len, sizeof(u32));
-		memcpy(&(msg_body.beacon[4]), skb_beacon->data,
-		       skb_beacon->len);
-	} else {
+	if (msg_body.beacon_length > BEACON_TEMPLATE_SIZE) {
 		wcn36xx_err("Beacon is to big: beacon size=%d\n",
 			      msg_body.beacon_length);
 		ret = -ENOMEM;
 		goto out;
 	}
+	memcpy(msg_body.beacon, skb_beacon->data, skb_beacon->len);
 	memcpy(msg_body.bssid, vif->addr, ETH_ALEN);
+
+	if (pad > 0) {
+		/*
+		 * The wcn36xx FW has a fixed size for the PVM in the TIM. If
+		 * given the beacon template from mac80211 with a PVM shorter
+		 * than the FW expectes it will overwrite the data after the
+		 * TIM.
+		 */
+		wcn36xx_dbg(WCN36XX_DBG_HAL, "Pad TIM PVM. %d bytes at %d\n",
+			    pad, pvm_len);
+		memmove(&msg_body.beacon[tim_off + 5 + pvm_len + pad],
+			&msg_body.beacon[tim_off + 5 + pvm_len],
+			skb_beacon->len - (tim_off + 5 + pvm_len));
+		memset(&msg_body.beacon[tim_off + 5 + pvm_len], 0, pad);
+		msg_body.beacon[tim_off + 1] += pad;
+	}
 
 	/* TODO need to find out why this is needed? */
 	if (vif->type == NL80211_IFTYPE_MESH_POINT)
@@ -1541,7 +1556,7 @@ out:
 int wcn36xx_smd_enter_bmps(struct wcn36xx *wcn, struct ieee80211_vif *vif)
 {
 	struct wcn36xx_hal_enter_bmps_req_msg msg_body;
-	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 	int ret = 0;
 
 	mutex_lock(&wcn->hal_mutex);
@@ -1571,7 +1586,7 @@ out:
 int wcn36xx_smd_exit_bmps(struct wcn36xx *wcn, struct ieee80211_vif *vif)
 {
 	struct wcn36xx_hal_enter_bmps_req_msg msg_body;
-	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 	int ret = 0;
 
 	mutex_lock(&wcn->hal_mutex);
@@ -1632,7 +1647,7 @@ int wcn36xx_smd_keep_alive_req(struct wcn36xx *wcn,
 			       int packet_type)
 {
 	struct wcn36xx_hal_keep_alive_req_msg msg_body;
-	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
+	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
 	int ret = 0;
 
 	mutex_lock(&wcn->hal_mutex);
@@ -2023,9 +2038,7 @@ static int wcn36xx_smd_missed_beacon_ind(struct wcn36xx *wcn,
 		list_for_each_entry(tmp, &wcn->vif_list, list) {
 			wcn36xx_dbg(WCN36XX_DBG_HAL, "beacon missed bss_index %d\n",
 				    tmp->bss_index);
-			vif = container_of((void *)tmp,
-						 struct ieee80211_vif,
-						 drv_priv);
+			vif = wcn36xx_priv_to_vif(tmp);
 			ieee80211_connection_loss(vif);
 		}
 		return 0;
@@ -2040,9 +2053,7 @@ static int wcn36xx_smd_missed_beacon_ind(struct wcn36xx *wcn,
 		if (tmp->bss_index == rsp->bss_index) {
 			wcn36xx_dbg(WCN36XX_DBG_HAL, "beacon missed bss_index %d\n",
 				    rsp->bss_index);
-			vif = container_of((void *)tmp,
-						 struct ieee80211_vif,
-						 drv_priv);
+			vif = wcn36xx_priv_to_vif(tmp);
 			ieee80211_connection_loss(vif);
 			return 0;
 		}
@@ -2174,15 +2185,28 @@ static void wcn36xx_smd_rsp_process(struct wcn36xx *wcn, void *buf, size_t len)
 	case WCN36XX_HAL_OTA_TX_COMPL_IND:
 	case WCN36XX_HAL_MISSED_BEACON_IND:
 	case WCN36XX_HAL_DELETE_STA_CONTEXT_IND:
-		mutex_lock(&wcn->hal_ind_mutex);
 		msg_ind = kmalloc(sizeof(*msg_ind), GFP_KERNEL);
+		if (!msg_ind)
+			goto nomem;
 		msg_ind->msg_len = len;
 		msg_ind->msg = kmalloc(len, GFP_KERNEL);
+		if (!msg_ind->msg) {
+			kfree(msg_ind);
+nomem:
+			/*
+			 * FIXME: Do something smarter then just
+			 * printing an error.
+			 */
+			wcn36xx_err("Run out of memory while handling SMD_EVENT (%d)\n",
+				    msg_header->msg_type);
+			break;
+		}
 		memcpy(msg_ind->msg, buf, len);
+		mutex_lock(&wcn->hal_ind_mutex);
 		list_add_tail(&msg_ind->list, &wcn->hal_ind_queue);
 		queue_work(wcn->hal_ind_wq, &wcn->hal_ind_work);
-		wcn36xx_dbg(WCN36XX_DBG_HAL, "indication arrived\n");
 		mutex_unlock(&wcn->hal_ind_mutex);
+		wcn36xx_dbg(WCN36XX_DBG_HAL, "indication arrived\n");
 		break;
 	default:
 		wcn36xx_err("SMD_EVENT (%d) not supported\n",
