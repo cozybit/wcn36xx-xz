@@ -1313,9 +1313,32 @@ int wcn36xx_smd_config_bss(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 	bss->max_probe_resp_retry_limit = 0;
 	bss->hidden_ssid = vif->bss_conf.hidden_ssid;
 	bss->proxy_probe_resp = 0;
-	bss->edca_params_valid = 0;
+	bss->edca_params_valid = 1;
 
-	/* FIXME: set acbe, acbk, acvi and acvo */
+	bss->acbe.aci.aifsn = 3;
+	bss->acbe.aci.aci = 0;
+	bss->acbe.cw.min = 4;
+	bss->acbe.cw.max = 10;
+	bss->acbe.txop_limit = 0;
+
+	bss->acbk.aci.aifsn = 7;
+	bss->acbk.aci.aci = 1;
+	bss->acbk.cw.min = 4;
+	bss->acbk.cw.max = 10;
+	bss->acbk.txop_limit = 0;
+
+	bss->acvi.aci.aifsn = 2;
+	bss->acvi.aci.aci = 2;
+	bss->acvi.cw.min = 3;
+	bss->acvi.cw.max = 4;
+	bss->acvi.txop_limit = 93;
+
+	bss->acvo.aci.aifsn = 2;
+	bss->acvo.aci.aci = 3;
+	bss->acvo.cw.min = 2;
+	bss->acvo.cw.max = 3;
+	bss->acvo.txop_limit = 46;
+
 
 	bss->ext_set_sta_key_param_valid = 0;
 
