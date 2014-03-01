@@ -95,6 +95,7 @@ static void wcn36xx_set_tx_pdu(struct wcn36xx_tx_bd *bd,
 		bd->pdu.mpdu_header_off;
 	bd->pdu.mpdu_len = len;
 	bd->pdu.tid = tid;
+	bd->pdu.bd_ssn = 2;
 }
 
 static inline struct wcn36xx_vif *get_vif_by_addr(struct wcn36xx *wcn,

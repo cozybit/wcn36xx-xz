@@ -51,7 +51,8 @@ struct wcn36xx_pdu {
 	/* 0x0c*/
 	u32	reserved4:8;
 	u32	tid:4;
-	u32	reserved3:4;
+	u32	bd_ssn:2;
+	u32	reserved3:2;
 	u32	mpdu_len:16;
 };
 
