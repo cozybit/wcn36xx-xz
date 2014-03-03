@@ -968,6 +968,7 @@ static void wcn36xx_smd_convert_sta_to_v1(struct wcn36xx *wcn,
 	v1->type = orig->type;
 	v1->listen_interval = orig->listen_interval;
 	v1->ht_capable = orig->ht_capable;
+	v1->wmm_enabled = orig->wmm_enabled;
 
 	v1->max_ampdu_size = orig->max_ampdu_size;
 	v1->max_ampdu_density = orig->max_ampdu_density;
