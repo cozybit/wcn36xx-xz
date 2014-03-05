@@ -5,3 +5,4 @@ wcn36xx-y += main.o \
 	smd.o \
 	pmc.o \
 	debug.o
+
