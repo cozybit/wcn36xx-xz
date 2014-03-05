@@ -116,10 +116,10 @@ struct wcn36xx_platform_ctrl_ops {
  */
 struct wcn36xx_vif {
 	struct list_head list;
-	struct wcn36xx_sta *sta;
 	u8 dtim_period;
 	enum ani_ed_type encrypt_type;
 	bool is_joining;
+	bool sta_assoc;
 	struct wcn36xx_hal_mac_ssid ssid;
 
 	/* Power management */
@@ -254,6 +254,12 @@ static inline
 struct ieee80211_vif *wcn36xx_priv_to_vif(struct wcn36xx_vif *vif_priv)
 {
 	return container_of((void *) vif_priv, struct ieee80211_vif, drv_priv);
+}
+
+static inline
+struct wcn36xx_sta *wcn36xx_sta_to_priv(struct ieee80211_sta *sta)
+{
+	return (struct wcn36xx_sta *)sta->drv_priv;
 }
 
 #endif	/* _WCN36XX_H_ */
