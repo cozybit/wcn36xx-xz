@@ -199,6 +199,45 @@ static void wcn36xx_set_tx_mgmt(struct wcn36xx_tx_bd *bd,
 	*vif_priv = __vif_priv;
 }
 
+/*
+ * Initiate TX a-mpdu with the station if we can.
+ */
+static void wcn36xx_tx_start_ampdu(struct wcn36xx *wcn,
+				   struct wcn36xx_sta *sta_priv,
+				   struct sk_buff *skb)
+{
+	struct ieee80211_hdr *hdr;
+	struct ieee80211_sta *sta;
+	u8 *qc, tid;
+
+	if (!sta_priv || !conf_is_ht(&wcn->hw->conf))
+		return;
+
+	sta = wcn36xx_priv_to_sta(sta_priv);
+
+	hdr = (struct ieee80211_hdr *) skb->data;
+	if (!ieee80211_is_data_qos(hdr->frame_control))
+		return;
+
+	if (skb_get_queue_mapping(skb) == IEEE80211_AC_VO)
+		return;
+
+	qc = ieee80211_get_qos_ctl(hdr);
+	tid = qc[0] & IEEE80211_QOS_CTL_TID_MASK;
+
+	spin_lock(&sta_priv->ampdu_lock);
+	if (sta_priv->ampdu_state[tid] != WCN36XX_AMPDU_NONE)
+		goto out_unlock;
+
+	if (sta_priv->non_agg_frame_ct++ >= WCN36XX_AMPDU_START_THRESH) {
+		sta_priv->ampdu_state[tid] = WCN36XX_AMPDU_START;
+		sta_priv->non_agg_frame_ct = 0;
+		ieee80211_start_tx_ba_session(sta, tid, 0);
+	}
+out_unlock:
+	spin_unlock(&sta_priv->ampdu_lock);
+}
+
 int wcn36xx_start_tx(struct wcn36xx *wcn,
 		     struct wcn36xx_sta *sta_priv,
 		     struct sk_buff *skb)
@@ -211,6 +250,8 @@ int wcn36xx_start_tx(struct wcn36xx *wcn,
 	bool bcast = is_broadcast_ether_addr(hdr->addr1) ||
 		is_multicast_ether_addr(hdr->addr1);
 	struct wcn36xx_tx_bd *bd = wcn36xx_dxe_get_next_bd(wcn, is_low);
+
+	wcn36xx_tx_start_ampdu(wcn, sta_priv, skb);
 
 	if (!bd) {
 		/*
