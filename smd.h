@@ -77,7 +77,7 @@ int wcn36xx_smd_config_bss(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 			   bool update);
 int wcn36xx_smd_delete_bss(struct wcn36xx *wcn, struct ieee80211_vif *vif);
 int wcn36xx_smd_config_sta(struct wcn36xx *wcn, struct ieee80211_vif *vif,
-			   struct ieee80211_sta *sta, u8 action);
+			   struct ieee80211_sta *sta);
 int wcn36xx_smd_send_beacon(struct wcn36xx *wcn, struct ieee80211_vif *vif,
 			    struct sk_buff *skb_beacon, u16 tim_off,
 			    u16 p2p_off);
@@ -132,12 +132,7 @@ int wcn36xx_smd_update_cfg(struct wcn36xx *wcn, u32 cfg_id, u32 value);
 int wcn36xx_smd_get_stats(struct wcn36xx *wcn, u32 sta_index,
 			  enum wcn36xx_hal_stats_mask stats_mask,
 			  void *stats);
-
 int wcn36xx_smd_set_mc_list(struct wcn36xx *wcn,
 			    struct ieee80211_vif *vif,
 			    struct wcn36xx_hal_rcv_flt_mc_addr_list_type *fp);
-
-struct wcn36xx_vif;
-struct wcn36xx_sta* wcn36xx_find_sta(struct wcn36xx_vif *priv, u8 *mac_addr);
-
 #endif	/* _SMD_H_ */
