@@ -936,11 +936,12 @@ static int wcn36xx_link_stats(struct ieee80211_hw *hw,
 	fwrate = &stats->last_tx_rate;
 	fail_avg = &stats->fail_avg;
 	sta_index = get_sta_index(vif, sta_priv);
+	rcu_read_unlock();
+
 	wcn36xx_smd_get_stats(wcn, sta_index,
 			      HAL_GLOBAL_CLASS_A_STATS_INFO, fwrate);
 	wcn36xx_smd_get_stats(wcn, sta_index,
 			      HAL_SUMMARY_STATS_INFO, fail_avg);
-	rcu_read_unlock();
 	return 0;
 }
 
