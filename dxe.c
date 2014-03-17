@@ -348,6 +348,7 @@ static void reap_tx_dxes(struct wcn36xx *wcn, struct wcn36xx_dxe_ch *ch)
 {
 	struct wcn36xx_dxe_ctl *ctl;
 	struct ieee80211_tx_info *info;
+	int processed = 0;
 	unsigned long flags;
 
 	/*
@@ -368,20 +369,20 @@ static void reap_tx_dxes(struct wcn36xx *wcn, struct wcn36xx_dxe_ch *ch)
 				/* Keep frame until TX status comes */
 				ieee80211_free_txskb(wcn->hw, ctl->skb);
 			}
-			spin_lock(&ctl->skb_lock);
-			if (wcn->queues_stopped) {
-				wcn->queues_stopped = false;
-				ieee80211_wake_queues(wcn->hw);
-			}
-			spin_unlock(&ctl->skb_lock);
-
 			ctl->skb = NULL;
+			ch->num_pending--;
+			processed++;
 		}
 		ctl = ctl->next;
 	} while (ctl != ch->head_blk_ctl &&
 	       !(ctl->desc->ctrl & WCN36XX_DXE_CTRL_VALID_MASK));
 
 	ch->tail_blk_ctl = ctl;
+
+	if (wcn->queues_stopped && ch->num_pending < 20) {
+		wcn->queues_stopped = false;
+		ieee80211_wake_queues(wcn->hw);
+	}
 	spin_unlock_irqrestore(&ch->lock, flags);
 }
 
@@ -668,8 +669,9 @@ int wcn36xx_dxe_tx_frame(struct wcn36xx *wcn,
 			 (char *)ctl->skb->data, ctl->skb->len);
 
 	/* Move the head of the ring to the next empty descriptor */
-	 ch->head_blk_ctl = ctl->next;
+	ch->head_blk_ctl = ctl->next;
 
+	ch->num_pending++;
 	/*
 	 * When connected and trying to send data frame chip can be in sleep
 	 * mode and writing to the register will not wake up the chip. Instead

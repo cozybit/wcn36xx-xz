@@ -259,6 +259,8 @@ struct wcn36xx_dxe_ch {
 	u32				ctrl_skb;
 	u32				reg_ctrl;
 	u32				def_ctrl;
+
+	int num_pending;
 };
 
 /* Memory Pool for BD headers */
