@@ -865,6 +865,8 @@ static int wcn36xx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	spin_unlock(&vif_priv->sta_list_spinlock);
 
+	spin_lock_init(&sta_priv->ampdu_lock);
+
 	/*
 	 * For STA mode HW will be configured on BSS_CHANGED_ASSOC because
 	 * at this stage AID is not available yet.
