@@ -306,6 +306,7 @@ static int wcn36xx_start(struct ieee80211_hw *hw)
 			wcn36xx_warn("Exchange feature caps failed\n");
 	}
 	INIT_LIST_HEAD(&wcn->vif_list);
+	spin_lock_init(&wcn->dxe_lock);
 
 	return 0;
 
