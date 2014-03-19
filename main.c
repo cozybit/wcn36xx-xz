@@ -891,6 +891,7 @@ static int wcn36xx_sta_remove(struct ieee80211_hw *hw,
 	struct wcn36xx_sta *sta_priv = wcn36xx_sta_to_priv(sta);
 	struct wcn36xx_vif *vif_priv = (struct wcn36xx_vif *)vif->drv_priv;
 	struct wcn36xx_sta *sta_priv_existing = NULL;
+	u16 sta_index;
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac sta remove vif %p sta %pM index %d\n",
 		    vif, sta->addr, sta_priv->sta_index);
@@ -899,17 +900,19 @@ static int wcn36xx_sta_remove(struct ieee80211_hw *hw,
 	sta_priv_existing = wcn36xx_find_sta(vif_priv, sta->addr);
 
 	if (sta_priv_existing)
+    {
 		list_del(&sta_priv_existing->list);
+		sta_priv_existing->vif = NULL;
+		sta_index = sta_priv_existing->sta_index;
+    }
 
 	spin_unlock(&vif_priv->sta_list_spinlock);
 
 	if (sta_priv_existing) {
-		sta_priv_existing->vif = NULL;
-		wcn36xx_smd_delete_sta(wcn, sta_priv_existing->sta_index);
-	}
-	else {
+		wcn36xx_smd_delete_sta(wcn, sta_index);
+	} else {
 		sta_priv->vif = NULL;
-		wcn36xx_smd_delete_sta(wcn, sta_priv_existing->sta_index);
+		wcn36xx_smd_delete_sta(wcn, sta_priv->sta_index);
 	}
 
 	return 0;
