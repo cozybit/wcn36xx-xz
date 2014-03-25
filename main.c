@@ -26,6 +26,10 @@ unsigned int wcn36xx_dbg_mask;
 module_param_named(debug_mask, wcn36xx_dbg_mask, uint, 0644);
 MODULE_PARM_DESC(debug_mask, "Debugging mask");
 
+static int wcn36xx_nohwcrypt;
+module_param_named(nohwcrypt, wcn36xx_nohwcrypt, int, 0444);
+MODULE_PARM_DESC(nohwcrypt, "Disable hardware encryption");
+
 #define CHAN2G(_freq, _idx) { \
 	.band = IEEE80211_BAND_2GHZ, \
 	.center_freq = (_freq), \
@@ -442,6 +446,9 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	struct wcn36xx_sta *sta_priv = wcn36xx_sta_to_priv(sta);
 	int ret = 0;
 	u8 key[WLAN_MAX_KEY_LEN];
+
+	if (wcn36xx_nohwcrypt)
+		return -ENOSPC;
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac80211 set key\n");
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "Key: cmd=0x%x algo:0x%x, id:%d, len:%d flags 0x%x\n",
@@ -1066,12 +1073,23 @@ static int wcn36xx_init_ieee80211(struct wcn36xx *wcn)
 		WLAN_CIPHER_SUITE_CCMP,
 	};
 
+	static const u32 cipher_suites_nohwcrypt[] = {
+		WLAN_CIPHER_SUITE_WEP40,
+		WLAN_CIPHER_SUITE_WEP104,
+		WLAN_CIPHER_SUITE_TKIP,
+		WLAN_CIPHER_SUITE_CCMP,
+		WLAN_CIPHER_SUITE_AES_CMAC,
+	};
+
 	wcn->hw->flags = IEEE80211_HW_SIGNAL_DBM |
 		IEEE80211_HW_HAS_RATE_CONTROL |
 		IEEE80211_HW_SUPPORTS_PS |
 		IEEE80211_HW_CONNECTION_MONITOR |
 		IEEE80211_HW_AMPDU_AGGREGATION |
 		IEEE80211_HW_TIMING_BEACON_ONLY;
+
+	if (wcn36xx_nohwcrypt)
+		wcn->hw->flags |= IEEE80211_HW_MFP_CAPABLE;
 
 	wcn->hw->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) |
 		BIT(NL80211_IFTYPE_AP) |
@@ -1081,10 +1099,17 @@ static int wcn36xx_init_ieee80211(struct wcn36xx *wcn)
 	wcn->hw->wiphy->bands[IEEE80211_BAND_2GHZ] = &wcn_band_2ghz;
 	wcn->hw->wiphy->bands[IEEE80211_BAND_5GHZ] = &wcn_band_5ghz;
 
-	wcn->hw->wiphy->cipher_suites = cipher_suites;
-	wcn->hw->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
+	if (!wcn36xx_nohwcrypt) {
+		wcn->hw->wiphy->cipher_suites = cipher_suites;
+		wcn->hw->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
+	} else {
+		wcn->hw->wiphy->cipher_suites = cipher_suites_nohwcrypt;
+		wcn->hw->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites_nohwcrypt);
+	}
 
 	wcn->hw->wiphy->flags |= WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD;
+	if (wcn36xx_nohwcrypt)
+		wcn->hw->wiphy->flags |= WIPHY_FLAG_IBSS_RSN;
 
 #ifdef CONFIG_PM
 	wcn->hw->wiphy->wowlan = &wowlan_support;
