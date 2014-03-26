@@ -447,8 +447,10 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	int ret = 0;
 	u8 key[WLAN_MAX_KEY_LEN];
 
-	if (wcn36xx_nohwcrypt)
+	if (wcn36xx_nohwcrypt) {
+		sta_priv->is_data_encrypted = true;
 		return -ENOSPC;
+    }
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac80211 set key\n");
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "Key: cmd=0x%x algo:0x%x, id:%d, len:%d flags 0x%x\n",
