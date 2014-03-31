@@ -448,7 +448,6 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	u8 key[WLAN_MAX_KEY_LEN];
 
 	if (wcn36xx_nohwcrypt) {
-		sta_priv->is_data_encrypted = true;
 		return -ENOSPC;
     }
 
