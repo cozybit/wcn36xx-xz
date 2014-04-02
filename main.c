@@ -443,14 +443,15 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 {
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
-	struct wcn36xx_sta *sta_priv = wcn36xx_sta_to_priv(sta);
+	struct wcn36xx_sta *sta_priv;
 	int ret = 0;
 	u8 key[WLAN_MAX_KEY_LEN];
 
-	if (wcn36xx_nohwcrypt) {
-		WARN_ON(sta_priv == NULL);
+	if (wcn36xx_nohwcrypt)
 		return -ENOSPC;
-    }
+
+	if (sta)
+		sta_priv = wcn36xx_sta_to_priv(sta);
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac80211 set key\n");
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "Key: cmd=0x%x algo:0x%x, id:%d, len:%d flags 0x%x\n",
@@ -497,7 +498,7 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 			memcpy(key, key_conf->key, key_conf->keylen);
 		}
 
-		if (IEEE80211_KEY_FLAG_PAIRWISE & key_conf->flags) {
+		if (sta && (IEEE80211_KEY_FLAG_PAIRWISE & key_conf->flags)) {
 			sta_priv->is_data_encrypted = true;
 			/* Reconfigure bss with encrypt_type */
 			if (NL80211_IFTYPE_STATION == vif->type)
@@ -519,7 +520,7 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 				key_conf->keyidx,
 				key_conf->keylen,
 				key);
-			if ((WLAN_CIPHER_SUITE_WEP40 == key_conf->cipher) ||
+			if (sta && (WLAN_CIPHER_SUITE_WEP40 == key_conf->cipher) ||
 			    (WLAN_CIPHER_SUITE_WEP104 == key_conf->cipher)) {
 				sta_priv->is_data_encrypted = true;
 				wcn36xx_smd_set_stakey(wcn,
@@ -537,7 +538,7 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 			wcn36xx_smd_remove_bsskey(wcn,
 				vif_priv->encrypt_type,
 				key_conf->keyidx);
-		} else {
+		} else if (sta) {
 			sta_priv->is_data_encrypted = false;
 			/* do not remove key if disassociated */
 			if (sta_priv->aid)
