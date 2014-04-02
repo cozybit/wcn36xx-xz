@@ -520,8 +520,9 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 				key_conf->keyidx,
 				key_conf->keylen,
 				key);
-			if (sta && (WLAN_CIPHER_SUITE_WEP40 == key_conf->cipher) ||
-			    (WLAN_CIPHER_SUITE_WEP104 == key_conf->cipher)) {
+			if (sta &&
+			    ((WLAN_CIPHER_SUITE_WEP40 == key_conf->cipher) ||
+			     (WLAN_CIPHER_SUITE_WEP104 == key_conf->cipher))) {
 				sta_priv->is_data_encrypted = true;
 				wcn36xx_smd_set_stakey(wcn,
 					vif_priv->encrypt_type,
