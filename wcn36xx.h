@@ -36,6 +36,7 @@
 /* How many frames until we start a-mpdu TX session */
 #define WCN36XX_AMPDU_START_THRESH	20
 
+extern int wcn36xx_nohwcrypt;
 extern unsigned int wcn36xx_dbg_mask;
 
 enum wcn36xx_debug_mask {

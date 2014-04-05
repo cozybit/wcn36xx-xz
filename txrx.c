@@ -28,8 +28,13 @@ int wcn36xx_rx_skb(struct wcn36xx *wcn, struct sk_buff *skb)
 {
 	struct ieee80211_rx_status status;
 	struct ieee80211_hdr *hdr;
+	struct ieee80211_vif *vif;
+	struct ieee80211_sta *sta;
+	struct wcn36xx_vif *vif_priv;
+	struct wcn36xx_sta *sta_priv;
 	struct wcn36xx_rx_bd *bd;
 	u16 fc, sn;
+	bool protected = false;
 
 	/*
 	 * All fields must be 0, otherwise it can lead to
@@ -54,9 +59,12 @@ int wcn36xx_rx_skb(struct wcn36xx *wcn, struct sk_buff *skb)
 	status.rate_idx = 1;
 	status.flag = 0;
 	status.rx_flags = 0;
-	status.flag |= RX_FLAG_IV_STRIPPED |
-		       RX_FLAG_MMIC_STRIPPED |
-		       RX_FLAG_DECRYPTED;
+
+	if (!wcn36xx_nohwcrypt) {
+		status.flag |= RX_FLAG_IV_STRIPPED |
+			       RX_FLAG_MMIC_STRIPPED |
+			       RX_FLAG_DECRYPTED;
+	}
 
 	wcn36xx_dbg(WCN36XX_DBG_RX, "status.flags=%x status->vendor_radiotap_len=%x\n",
 		    status.flag,  status.vendor_radiotap_len);
@@ -67,12 +75,50 @@ int wcn36xx_rx_skb(struct wcn36xx *wcn, struct sk_buff *skb)
 	fc = __le16_to_cpu(hdr->frame_control);
 	sn = IEEE80211_SEQ_TO_SN(__le16_to_cpu(hdr->seq_ctrl));
 
+	if (wcn36xx_nohwcrypt) {
+		/*
+		 * XXX awful hack: re-set protected bit on
+		 * encrypted frames.  We assume a frame is
+		 * encrypted if it is data or robust mgmt frame
+		 * from a sta for which we have a key.
+		 *
+		 * (See 802.11-2012 13.7)
+		 */
+		u8 *ta = hdr->addr2;
+
+		rcu_read_lock();
+		list_for_each_entry(vif_priv, &wcn->vif_list, list) {
+			vif = wcn36xx_priv_to_vif(vif_priv);
+			sta = ieee80211_find_sta(vif, ta);
+			if (sta) {
+				sta_priv = wcn36xx_sta_to_priv(sta);
+				protected = sta_priv->is_data_encrypted;
+				break;
+			}
+		}
+		rcu_read_unlock();
+	}
+
 	if (ieee80211_is_beacon(hdr->frame_control)) {
 		wcn36xx_dbg(WCN36XX_DBG_BEACON, "beacon skb %p len %d fc %04x sn %d\n",
 			    skb, skb->len, fc, sn);
 		wcn36xx_dbg_dump(WCN36XX_DBG_BEACON_DUMP, "SKB <<< ",
 				 (char *)skb->data, skb->len);
 	} else {
+
+		/*
+		 * bcast mgmt frames are integrity protected but not
+		 * encrypted.
+		 */
+		if (ieee80211_is_mgmt(hdr->frame_control) &&
+		    is_multicast_ether_addr(hdr->addr1)) {
+			protected = false;
+		}
+
+		if (protected) {
+			hdr->frame_control = cpu_to_le16(fc | IEEE80211_FCTL_PROTECTED);
+		}
+
 		wcn36xx_dbg(WCN36XX_DBG_RX, "rx skb %p len %d fc %04x sn %d\n",
 			    skb, skb->len, fc, sn);
 		wcn36xx_dbg_dump(WCN36XX_DBG_RX_DUMP, "SKB <<< ",
@@ -147,7 +193,19 @@ static void wcn36xx_set_tx_data(struct wcn36xx_tx_bd *bd,
 		bd->dpu_sign = __vif_priv->self_ucast_dpu_sign;
 	}
 
+	if (wcn36xx_nohwcrypt) {
+		/*
+		 * XXX awful hack: disable protected bit on
+		 * encrypted frames, because we can't yet figure
+		 * out how to receive encrypted frames without
+		 * the key.
+		 */
+		u16 fc = le16_to_cpu(hdr->frame_control);
+		hdr->frame_control = cpu_to_le16(fc & ~IEEE80211_FCTL_PROTECTED);
+	}
+
 	if (ieee80211_is_nullfunc(hdr->frame_control) ||
+	   wcn36xx_nohwcrypt ||
 	   (sta_priv && !sta_priv->is_data_encrypted))
 		bd->dpu_ne = 1;
 
@@ -187,6 +245,12 @@ static void wcn36xx_set_tx_mgmt(struct wcn36xx_tx_bd *bd,
 	if (__vif_priv->is_joining &&
 	    ieee80211_is_probe_req(hdr->frame_control))
 		bcast = false;
+
+	if (wcn36xx_nohwcrypt) {
+		/* XXX awful hack: disable protected bit on mgmt frames */
+		u16 fc = le16_to_cpu(hdr->frame_control);
+		hdr->frame_control = cpu_to_le16(fc & ~IEEE80211_FCTL_PROTECTED);
+	}
 
 	if (bcast) {
 		/* broadcast */

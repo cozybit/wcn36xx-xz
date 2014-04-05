@@ -26,7 +26,7 @@ unsigned int wcn36xx_dbg_mask;
 module_param_named(debug_mask, wcn36xx_dbg_mask, uint, 0644);
 MODULE_PARM_DESC(debug_mask, "Debugging mask");
 
-static int wcn36xx_nohwcrypt;
+int wcn36xx_nohwcrypt;
 module_param_named(nohwcrypt, wcn36xx_nohwcrypt, int, 0444);
 MODULE_PARM_DESC(nohwcrypt, "Disable hardware encryption");
 
@@ -443,15 +443,18 @@ static int wcn36xx_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 {
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_vif *vif_priv = wcn36xx_vif_to_priv(vif);
-	struct wcn36xx_sta *sta_priv;
+	struct wcn36xx_sta *sta_priv = NULL;
 	int ret = 0;
 	u8 key[WLAN_MAX_KEY_LEN];
 
-	if (wcn36xx_nohwcrypt)
-		return -ENOSPC;
-
 	if (sta)
 		sta_priv = wcn36xx_sta_to_priv(sta);
+
+	if (wcn36xx_nohwcrypt) {
+		if (sta)
+			sta_priv->is_data_encrypted = (cmd == SET_KEY);
+		return -ENOSPC;
+	}
 
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "mac80211 set key\n");
 	wcn36xx_dbg(WCN36XX_DBG_MAC, "Key: cmd=0x%x algo:0x%x, id:%d, len:%d flags 0x%x\n",
